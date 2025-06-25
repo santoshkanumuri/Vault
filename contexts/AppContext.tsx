@@ -18,6 +18,7 @@ interface AppContextType {
   searchQuery: string;
   darkMode: boolean;
   showMetadata: boolean;
+  isLoading: boolean;
   setCurrentFolder: (folderId: string | null) => void;
   setSearchQuery: (query: string) => void;
   toggleDarkMode: () => void;
@@ -57,6 +58,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [searchQuery, setSearchQuery] = useState('');
   const [darkMode, setDarkMode] = useState(false);
   const [showMetadata, setShowMetadata] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
   const useDatabase = isSupabaseConfigured();
 
@@ -69,6 +71,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const loadData = async () => {
     if (!user) return;
 
+    setIsLoading(true);
     try {
       if (useDatabase) {
         // Load from Supabase
@@ -78,12 +81,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           db.getLinks(user.id),
           db.getNotes(user.id)
         ]);
-        
+
         setFolders(foldersData);
         setTags(tagsData);
         setLinks(linksData);
         setNotes(notesData);
-        
+
         // Create default folder if none exist
         if (foldersData.length === 0) {
           await createDefaultFolder();
@@ -94,12 +97,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const savedTags = getTags().filter(t => t.userId === user.id);
         const savedLinks = getLinks().filter(l => l.userId === user.id);
         const savedNotes = getNotes().filter(n => n.userId === user.id);
-        
+
         setFolders(savedFolders);
         setTags(savedTags);
         setLinks(savedLinks);
         setNotes(savedNotes);
-        
+
         // Create default folder if none exist
         if (savedFolders.length === 0) {
           await createDefaultFolder();
@@ -110,12 +113,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setDarkMode(savedTheme);
     } catch (error) {
       console.error('Error loading data:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const createDefaultFolder = async () => {
     if (!user) return;
-    
+
     const defaultFolder: Folder = {
       id: Date.now().toString(),
       name: 'General',
@@ -159,7 +164,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createFolder = async (name: string, color: string): Promise<Folder> => {
     if (!user) throw new Error('User not authenticated');
-    
+
+    setIsLoading(true);
     try {
       if (useDatabase) {
         const folder = await db.createFolder(name, color, user.id);
@@ -174,7 +180,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           createdAt: new Date().toISOString(),
           userId: user.id,
         };
-        
+
         const newFolders = [...folders, folder];
         setFolders(newFolders);
         saveFolders([...getFolders(), folder]);
@@ -183,10 +189,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (error) {
       console.error('Error creating folder:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const updateFolder = async (id: string, name: string) => {
+    setIsLoading(true);
     try {
       if (useDatabase) {
         await db.updateFolder(id, name);
@@ -194,15 +203,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const allFolders = getFolders().map(f => f.id === id ? { ...f, name } : f);
         saveFolders(allFolders);
       }
-      
+
       setFolders(prev => prev.map(f => f.id === id ? { ...f, name } : f));
     } catch (error) {
       console.error('Error updating folder:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const deleteFolder = async (id: string) => {
+    setIsLoading(true);
     try {
       if (useDatabase) {
         await db.deleteFolder(id);
@@ -210,33 +222,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // For localStorage, we need to handle cascading deletes manually
         const allFolders = getFolders().filter(f => f.id !== id);
         saveFolders(allFolders);
-        
+
         // Remove links in this folder
         const allLinks = getLinks().filter(l => l.folderId !== id);
         saveLinks(allLinks);
-        
+
         // Remove notes in this folder
         const allNotes = getNotes().filter(n => n.folderId !== id);
         saveNotes(allNotes);
       }
-      
+
       // Update local state
       setFolders(prev => prev.filter(f => f.id !== id));
       setLinks(prev => prev.filter(l => l.folderId !== id));
       setNotes(prev => prev.filter(n => n.folderId !== id));
-      
+
       if (currentFolder === id) {
         setCurrentFolder(null);
       }
     } catch (error) {
       console.error('Error deleting folder:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const createTag = async (name: string, color: string): Promise<Tag> => {
     if (!user) throw new Error('User not authenticated');
-    
+
+    setIsLoading(true);
     try {
       if (useDatabase) {
         const tag = await db.createTag(name, color, user.id);
@@ -251,7 +266,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           createdAt: new Date().toISOString(),
           userId: user.id,
         };
-        
+
         const newTags = [...tags, tag];
         setTags(newTags);
         saveTags([...getTags(), tag]);
@@ -260,10 +275,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (error) {
       console.error('Error creating tag:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const updateTag = async (id: string, name: string, color: string) => {
+    setIsLoading(true);
     try {
       if (useDatabase) {
         await db.updateTag(id, name, color);
@@ -271,15 +289,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const allTags = getTags().map(t => t.id === id ? { ...t, name, color } : t);
         saveTags(allTags);
       }
-      
+
       setTags(prev => prev.map(t => t.id === id ? { ...t, name, color } : t));
     } catch (error) {
       console.error('Error updating tag:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const deleteTag = async (id: string) => {
+    setIsLoading(true);
     try {
       if (useDatabase) {
         await db.deleteTag(id);
@@ -287,14 +308,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // For localStorage, handle cascading updates manually
         const allTags = getTags().filter(t => t.id !== id);
         saveTags(allTags);
-        
+
         // Remove tag from all links
         const allLinks = getLinks().map(l => ({
           ...l,
           tagIds: l.tagIds.filter(tagId => tagId !== id)
         }));
         saveLinks(allLinks);
-        
+
         // Remove tag from all notes
         const allNotes = getNotes().map(n => ({
           ...n,
@@ -302,7 +323,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }));
         saveNotes(allNotes);
       }
-      
+
       // Update local state
       setTags(prev => prev.filter(t => t.id !== id));
       setLinks(prev => prev.map(l => ({
@@ -316,16 +337,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (error) {
       console.error('Error deleting tag:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const createLink = async (name: string, url: string, description: string, folderId: string, tagIds: string[]): Promise<Link> => {
     if (!user) throw new Error('User not authenticated');
-    
+
+    setIsLoading(true);
     try {
       // Fetch metadata for the link
       const metadata = await fetchLinkMetadata(url);
-      
+
       const linkData = {
         name: name || metadata.title || 'Untitled Link',
         url,
@@ -357,7 +381,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           createdAt: new Date().toISOString(),
           userId: user.id,
         };
-        
+
         const newLinks = [...links, link];
         setLinks(newLinks);
         saveLinks([...getLinks(), link]);
@@ -366,22 +390,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (error) {
       console.error('Error creating link:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const updateLink = async (id: string, name: string, url: string, description: string, folderId: string, tagIds: string[]) => {
+    setIsLoading(true);
     try {
       const existingLink = links.find(l => l.id === id);
       let metadata = existingLink?.metadata;
       let favicon = existingLink?.favicon;
-      
+
       // If URL changed, fetch new metadata
       if (existingLink && existingLink.url !== url) {
         const newMetadata = await fetchLinkMetadata(url);
         metadata = newMetadata;
         favicon = newMetadata.favicon;
       }
-      
+
       const linkData = {
         name,
         url,
@@ -407,15 +434,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const allLinks = getLinks().map(l => l.id === id ? { ...l, ...linkData } : l);
         saveLinks(allLinks);
       }
-      
+
       setLinks(prev => prev.map(l => l.id === id ? { ...l, ...linkData } : l));
     } catch (error) {
       console.error('Error updating link:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const deleteLink = async (id: string) => {
+    setIsLoading(true);
     try {
       if (useDatabase) {
         await db.deleteLink(id);
@@ -423,21 +453,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const allLinks = getLinks().filter(l => l.id !== id);
         saveLinks(allLinks);
       }
-      
+
       setLinks(prev => prev.filter(l => l.id !== id));
     } catch (error) {
       console.error('Error deleting link:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const refreshLinkMetadata = async (id: string) => {
     const link = links.find(l => l.id === id);
     if (!link) return;
-    
+
+    setIsLoading(true);
     try {
       const metadata = await fetchLinkMetadata(link.url);
-      
+
       const updatedData = {
         favicon: metadata.favicon,
         metadata
@@ -458,16 +491,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const allLinks = getLinks().map(l => l.id === id ? { ...l, ...updatedData } : l);
         saveLinks(allLinks);
       }
-      
+
       setLinks(prev => prev.map(l => l.id === id ? { ...l, ...updatedData } : l));
     } catch (error) {
       console.error('Failed to refresh metadata:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const createNote = async (title: string, content: string, folderId: string, tagIds: string[]): Promise<Note> => {
     if (!user) throw new Error('User not authenticated');
-    
+
+    setIsLoading(true);
     try {
       const note: Note = {
         id: Date.now().toString(),
@@ -498,10 +534,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (error) {
       console.error('Error creating note:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const updateNote = async (id: string, title: string, content: string, folderId: string, tagIds: string[]) => {
+    setIsLoading(true);
     try {
       const noteData = {
         title,
@@ -522,15 +561,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const allNotes = getNotes().map(n => n.id === id ? { ...n, ...noteData } : n);
         saveNotes(allNotes);
       }
-      
+
       setNotes(prev => prev.map(n => n.id === id ? { ...n, ...noteData } : n));
     } catch (error) {
       console.error('Error updating note:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const deleteNote = async (id: string) => {
+    setIsLoading(true);
     try {
       if (useDatabase) {
         await db.deleteNote(id);
@@ -538,11 +580,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const allNotes = getNotes().filter(n => n.id !== id);
         saveNotes(allNotes);
       }
-      
+
       setNotes(prev => prev.filter(n => n.id !== id));
     } catch (error) {
       console.error('Error deleting note:', error);
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -556,6 +600,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       searchQuery,
       darkMode,
       showMetadata,
+      isLoading,
       setCurrentFolder,
       setSearchQuery,
       toggleDarkMode,
