@@ -1,0 +1,68 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="vaultGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#000000;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#1a1a1a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#000000;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="512" height="512" fill="url(#vaultGradient)" rx="51.2"/>
+  
+  <!-- Vault door circles -->
+  <circle cx="256" cy="256" r="190" fill="none" stroke="white" stroke-width="8" opacity="0.8"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="white" stroke-width="6" opacity="0.6"/>
+  <circle cx="256" cy="256" r="110" fill="none" stroke="white" stroke-width="4" opacity="0.4"/>
+  
+  <!-- Vault handle/dial -->
+  <circle cx="256" cy="256" r="70" fill="none" stroke="white" stroke-width="8"/>
+  <circle cx="256" cy="256" r="45" fill="white" opacity="0.9"/>
+  
+  <!-- Dial indicators -->
+  <circle cx="256" cy="186" r="6" fill="white"/>
+  <circle cx="326" cy="256" r="6" fill="white"/>
+  <circle cx="256" cy="326" r="6" fill="white"/>
+  <circle cx="186" cy="256" r="6" fill="white"/>
+  
+  <!-- Additional dial marks -->
+  <circle cx="305" cy="207" r="4" fill="white" opacity="0.7"/>
+  <circle cx="305" cy="305" r="4" fill="white" opacity="0.7"/>
+  <circle cx="207" cy="305" r="4" fill="white" opacity="0.7"/>
+  <circle cx="207" cy="207" r="4" fill="white" opacity="0.7"/>
+  
+  <!-- Lock mechanism lines -->
+  <line x1="256" y1="256" x2="256" y2="211" stroke="white" stroke-width="6" stroke-linecap="round"/>
+  <line x1="256" y1="256" x2="276" y2="236" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  
+  <!-- Security bolts -->
+  <circle cx="100" cy="180" r="12" fill="white" opacity="0.7"/>
+  <circle cx="100" cy="332" r="12" fill="white" opacity="0.7"/>
+  <circle cx="412" cy="180" r="12" fill="white" opacity="0.7"/>
+  <circle cx="412" cy="332" r="12" fill="white" opacity="0.7"/>
+  
+  <!-- Corner reinforcements -->
+  <rect x="80" y="160" width="40" height="8" rx="4" fill="white" opacity="0.5"/>
+  <rect x="80" y="344" width="40" height="8" rx="4" fill="white" opacity="0.5"/>
+  <rect x="392" y="160" width="40" height="8" rx="4" fill="white" opacity="0.5"/>
+  <rect x="392" y="344" width="40" height="8" rx="4" fill="white" opacity="0.5"/>
+  
+  <!-- Brand text -->
+  <text x="256" y="430" font-family="Arial, sans-serif" font-size="64" font-weight="bold" fill="white" text-anchor="middle" filter="url(#glow)">VAULT</text>
+</svg>="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#gradient)" rx="51.2"/>
+  <text x="50%" y="50%" font-family="Arial, sans-serif" font-size="153.6" fill="white" text-anchor="middle" dominant-baseline="central">LS</text>
+</svg>

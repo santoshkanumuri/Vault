@@ -1,0 +1,45 @@
+<svg width="192" height="192" viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="vaultGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#000000;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#1a1a1a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#000000;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="192" height="192" fill="url(#vaultGradient)" rx="19.2"/>
+  
+  <!-- Vault door circle -->
+  <circle cx="96" cy="96" r="70" fill="none" stroke="white" stroke-width="3" opacity="0.8"/>
+  <circle cx="96" cy="96" r="55" fill="none" stroke="white" stroke-width="2" opacity="0.6"/>
+  
+  <!-- Vault handle/dial -->
+  <circle cx="96" cy="96" r="25" fill="none" stroke="white" stroke-width="3"/>
+  <circle cx="96" cy="96" r="15" fill="white" opacity="0.9"/>
+  
+  <!-- Dial indicators -->
+  <circle cx="96" cy="71" r="2" fill="white"/>
+  <circle cx="121" cy="96" r="2" fill="white"/>
+  <circle cx="96" cy="121" r="2" fill="white"/>
+  <circle cx="71" cy="96" r="2" fill="white"/>
+  
+  <!-- Lock mechanism lines -->
+  <line x1="96" y1="96" x2="96" y2="81" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  
+  <!-- Security bolts -->
+  <circle cx="40" cy="70" r="4" fill="white" opacity="0.7"/>
+  <circle cx="40" cy="122" r="4" fill="white" opacity="0.7"/>
+  <circle cx="152" cy="70" r="4" fill="white" opacity="0.7"/>
+  <circle cx="152" cy="122" r="4" fill="white" opacity="0.7"/>
+  
+  <!-- Brand text -->
+  <text x="96" y="160" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="white" text-anchor="middle" filter="url(#glow)">VAULT</text>
+</svg>
