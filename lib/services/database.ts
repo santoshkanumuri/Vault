@@ -1,12 +1,48 @@
 import { supabase } from '@/lib/supabase';
 import { User, Folder, Tag, Link, Note } from '@/lib/types';
+import { logger } from '@/lib/utils/logger';
+
+// Helper to ensure Supabase is configured
+const requireSupabase = () => {
+  if (!supabase) {
+    const error = new Error('Supabase is not configured. Please check your environment variables.');
+    logger.error('requireSupabase: Supabase not configured', {}, error);
+    throw error;
+  }
+  return supabase;
+};
+
+// Helper to handle Supabase errors
+const handleSupabaseError = (operation: string, error: any, context?: Record<string, any>) => {
+  const errorMessage = error?.message || 'Unknown error';
+  const errorCode = error?.code || 'UNKNOWN';
+  
+  logger.error(`Database ${operation}: Supabase error`, {
+    ...context,
+    errorCode,
+    errorMessage
+  }, error);
+  
+  // Provide user-friendly error messages
+  if (errorCode === 'PGRST116') {
+    return new Error(`Item not found`);
+  }
+  if (errorCode === '23505') {
+    return new Error(`Duplicate entry: ${errorMessage}`);
+  }
+  if (errorCode === '23503') {
+    return new Error(`Referenced item does not exist`);
+  }
+  
+  return new Error(`Database operation failed: ${errorMessage}`);
+};
 
 // User operations
 export const createUser = async (email: string, name: string): Promise<User | null> => {
-  if (!supabase) return null;
+  const client = requireSupabase();
   
   try {
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error } = await client.auth.signUp({
       email,
       password: 'temp-password', // This will be handled by Supabase auth
     });
@@ -15,7 +51,7 @@ export const createUser = async (email: string, name: string): Promise<User | nu
 
     if (data.user) {
       // The trigger function should handle user creation, but let's verify
-      const { data: userData, error: userError } = await supabase
+      const { data: userData, error: userError } = await client
         .from('users')
         .select('*')
         .eq('id', data.user.id)
@@ -23,7 +59,7 @@ export const createUser = async (email: string, name: string): Promise<User | nu
 
       if (userError && userError.code !== 'PGRST116') {
         // If user doesn't exist and it's not a "not found" error, create manually
-        const { data: createdUser, error: createError } = await supabase
+        const { data: createdUser, error: createError } = await client
           .from('users')
           .insert({
             id: data.user.id,
@@ -57,14 +93,16 @@ export const createUser = async (email: string, name: string): Promise<User | nu
     }
   } catch (error) {
     console.error('Error creating user:', error);
+    throw error;
   }
   return null;
 };
 
 export const signInUser = async (email: string, password: string): Promise<User | null> => {
-  if (!supabase) return null;
+  const client = requireSupabase();
+  
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await client.auth.signInWithPassword({
       email,
       password,
     });
@@ -72,7 +110,7 @@ export const signInUser = async (email: string, password: string): Promise<User 
     if (error) throw error;
 
     if (data.user) {
-      const { data: userData, error: userError } = await supabase
+      const { data: userData, error: userError } = await client
         .from('users')
         .select('*')
         .eq('id', data.user.id)
@@ -90,15 +128,16 @@ export const signInUser = async (email: string, password: string): Promise<User 
     }
   } catch (error) {
     console.error('Error signing in user:', error);
+    throw error;
   }
   return null;
 };
 
 export const signOutUser = async (): Promise<void> => {
-  if (!supabase) return;
+  const client = requireSupabase();
   
   try {
-    const { error } = await supabase.auth.signOut();
+    const { error } = await client.auth.signOut();
     if (error) throw error;
   } catch (error) {
     console.error('Error signing out user:', error);
@@ -107,9 +146,10 @@ export const signOutUser = async (): Promise<void> => {
 };
 
 export const updateUserMetadataPreference = async (userId: string, showMetadata: boolean): Promise<void> => {
-  if (!supabase) return;
+  const client = requireSupabase();
+  
   try {
-    const { error } = await supabase
+    const { error } = await client
       .from('users')
       .update({ show_metadata: showMetadata })
       .eq('id', userId);
@@ -123,9 +163,10 @@ export const updateUserMetadataPreference = async (userId: string, showMetadata:
 
 // Folder operations
 export const getFolders = async (userId: string): Promise<Folder[]> => {
-  if (!supabase) return [];
+  const client = requireSupabase();
+  
   try {
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from('folders')
       .select(`
         *,
@@ -146,14 +187,15 @@ export const getFolders = async (userId: string): Promise<Folder[]> => {
     }));
   } catch (error) {
     console.error('Error fetching folders:', error);
-    return [];
+    throw error;
   }
 };
 
 export const createFolder = async (name: string, color: string, userId: string): Promise<Folder | null> => {
-  if (!supabase) return null;
+  const client = requireSupabase();
+  
   try {
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from('folders')
       .insert({
         name,
@@ -174,14 +216,15 @@ export const createFolder = async (name: string, color: string, userId: string):
     };
   } catch (error) {
     console.error('Error creating folder:', error);
-    return null;
+    throw error;
   }
 };
 
 export const updateFolder = async (id: string, name: string): Promise<void> => {
-  if (!supabase) return;
+  const client = requireSupabase();
+  
   try {
-    const { error } = await supabase
+    const { error } = await client
       .from('folders')
       .update({ name })
       .eq('id', id);
@@ -194,9 +237,10 @@ export const updateFolder = async (id: string, name: string): Promise<void> => {
 };
 
 export const deleteFolder = async (id: string): Promise<void> => {
-  if (!supabase) return;
+  const client = requireSupabase();
+  
   try {
-    const { error } = await supabase
+    const { error } = await client
       .from('folders')
       .delete()
       .eq('id', id);
@@ -210,9 +254,10 @@ export const deleteFolder = async (id: string): Promise<void> => {
 
 // Tag operations
 export const getTags = async (userId: string): Promise<Tag[]> => {
-  if (!supabase) return [];
+  const client = requireSupabase();
+  
   try {
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from('tags')
       .select('*')
       .eq('user_id', userId)
@@ -229,14 +274,15 @@ export const getTags = async (userId: string): Promise<Tag[]> => {
     }));
   } catch (error) {
     console.error('Error fetching tags:', error);
-    return [];
+    throw error;
   }
 };
 
 export const createTag = async (name: string, color: string, userId: string): Promise<Tag | null> => {
-  if (!supabase) return null;
+  const client = requireSupabase();
+  
   try {
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from('tags')
       .insert({
         name,
@@ -257,14 +303,15 @@ export const createTag = async (name: string, color: string, userId: string): Pr
     };
   } catch (error) {
     console.error('Error creating tag:', error);
-    return null;
+    throw error;
   }
 };
 
 export const updateTag = async (id: string, name: string, color: string): Promise<void> => {
-  if (!supabase) return;
+  const client = requireSupabase();
+  
   try {
-    const { error } = await supabase
+    const { error } = await client
       .from('tags')
       .update({ name, color })
       .eq('id', id);
@@ -277,9 +324,10 @@ export const updateTag = async (id: string, name: string, color: string): Promis
 };
 
 export const deleteTag = async (id: string): Promise<void> => {
-  if (!supabase) return;
+  const client = requireSupabase();
+  
   try {
-    const { error } = await supabase
+    const { error } = await client
       .from('tags')
       .delete()
       .eq('id', id);
@@ -292,21 +340,29 @@ export const deleteTag = async (id: string): Promise<void> => {
 };
 
 // Link operations
-export const getLinks = async (userId: string): Promise<Link[]> => {
-  if (!supabase) return [];
+export const getLinks = async (
+  userId: string,
+  page: number = 1,
+  limit: number = 50
+): Promise<{ links: Link[]; total: number; hasMore: boolean }> => {
+  const client = requireSupabase();
+  
   try {
-    const { data, error } = await supabase
+    const offset = (page - 1) * limit;
+    
+    const { data, error, count } = await client
       .from('links')
       .select(`
         *,
         link_tags(tag_id)
-      `)
+      `, { count: 'exact' })
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
 
     if (error) throw error;
 
-    return data.map(link => ({
+    const links = data.map(link => ({
       id: link.id,
       name: link.name,
       url: link.url,
@@ -315,12 +371,26 @@ export const getLinks = async (userId: string): Promise<Link[]> => {
       userId: link.user_id,
       favicon: link.favicon || undefined,
       metadata: link.metadata as any,
+      fullContent: link.full_content || undefined,
+      contentType: link.content_type || undefined,
+      author: link.author || undefined,
       tagIds: link.link_tags.map((lt: any) => lt.tag_id),
       createdAt: link.created_at,
+      embedding: link.embedding || undefined,
+      wordCount: link.word_count || undefined,
     }));
-  } catch (error) {
-    console.error('Error fetching links:', error);
-    return [];
+
+    return {
+      links,
+      total: count || 0,
+      hasMore: (count || 0) > offset + limit,
+    };
+  } catch (error: any) {
+    logger.error('getLinks: Failed', { 
+      userId, 
+      error: error.message 
+    }, error);
+    throw error;
   }
 };
 
@@ -334,11 +404,11 @@ export const createLink = async (
   favicon: string | null | undefined,
   metadata: any
 ): Promise<Link | null> => {
-  if (!supabase) return null;
+  const client = requireSupabase();
   
   try {
     // Start a transaction-like operation using RPC or single atomic operations
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from('links')
       .insert([
         {
@@ -349,6 +419,9 @@ export const createLink = async (
           user_id: userId,
           favicon,
           metadata: metadata ? { ...metadata } : null,
+          full_content: metadata?.content || null,
+          content_type: metadata?.type || null,
+          author: metadata?.author || null,
         },
       ])
       .select()
@@ -358,7 +431,7 @@ export const createLink = async (
 
     // Add tag associations if successful
     if (tagIds.length > 0) {
-      const { error: tagError } = await supabase
+      const { error: tagError } = await client
         .from('link_tags')
         .insert(
           tagIds.map(tagId => ({
@@ -369,7 +442,7 @@ export const createLink = async (
 
       if (tagError) {
         // If tag insertion fails, delete the created link to maintain consistency
-        await supabase.from('links').delete().eq('id', data.id);
+        await client.from('links').delete().eq('id', data.id);
         throw tagError;
       }
     }
@@ -383,12 +456,54 @@ export const createLink = async (
       userId: data.user_id,
       favicon: data.favicon || undefined,
       metadata: data.metadata,
+      fullContent: data.full_content || undefined,
+      contentType: data.content_type || undefined,
+      author: data.author || undefined,
       tagIds,
       createdAt: data.created_at,
     };
-  } catch (error) {
-    console.error('Error creating link:', error);
-    return null;
+  } catch (error: any) {
+    logger.error('createLink: Failed', { 
+      name, 
+      url, 
+      error: error.message 
+    }, error);
+    throw error;
+  }
+};
+
+// Helper function to update link content fields only
+export const updateLinkContent = async (
+  id: string,
+  fullContent?: string,
+  contentType?: string,
+  author?: string,
+  wordCount?: number
+): Promise<void> => {
+  const client = requireSupabase();
+  
+  try {
+    logger.info('updateLinkContent: Updating link content', { id });
+    
+    const updateData: any = {};
+    if (fullContent !== undefined) updateData.full_content = fullContent;
+    if (contentType !== undefined) updateData.content_type = contentType;
+    if (author !== undefined) updateData.author = author;
+    if (wordCount !== undefined) updateData.word_count = wordCount;
+    
+    const { error } = await client
+      .from('links')
+      .update(updateData)
+      .eq('id', id);
+    
+    if (error) {
+      throw handleSupabaseError('updateLinkContent', error, { id });
+    }
+    
+    logger.info('updateLinkContent: Success', { id });
+  } catch (error: any) {
+    logger.error('updateLinkContent: Failed', { id, error: error.message }, error);
+    throw error;
   }
 };
 
@@ -402,36 +517,80 @@ export const updateLink = async (
   favicon?: string,
   metadata?: any
 ): Promise<void> => {
-  if (!supabase) return;
+  const client = requireSupabase();
   
   try {
+    logger.info('updateLink: Updating link', { 
+      id, 
+      name, 
+      url, 
+      folderId,
+      tagCount: tagIds.length 
+    });
+
+    // Validate inputs
+    if (!id || !name || !url || !folderId) {
+      throw new Error('Missing required fields for link update');
+    }
+
+    // Prepare update data - handle both old and new metadata formats
+    const updateData: any = {
+      name: name.trim(),
+      url: url.trim(),
+      description: description?.trim() || '',
+      folder_id: folderId,
+      favicon: favicon?.trim() || null,
+      metadata: metadata ? { ...metadata } : null,
+    };
+
+    // Handle full_content, content_type, and author from various sources
+    if (metadata) {
+      // New format: metadata.fullContent
+      if (metadata.fullContent?.fullText) {
+        updateData.full_content = metadata.fullContent.fullText;
+        updateData.content_type = metadata.fullContent.contentType || null;
+        updateData.author = metadata.fullContent.author || null;
+      }
+      // Old format: metadata.content
+      else if (metadata.content) {
+        updateData.full_content = metadata.content;
+        updateData.content_type = metadata.type || null;
+        updateData.author = metadata.author || null;
+      }
+      // Explicit fields
+      else {
+        updateData.full_content = metadata.full_content || null;
+        updateData.content_type = metadata.content_type || metadata.contentType || metadata.type || null;
+        updateData.author = metadata.author || null;
+      }
+    }
+
     // Update link data first
-    const { error: linkError } = await supabase
+    const { error: linkError } = await client
       .from('links')
-      .update({
-        name,
-        url,
-        description,
-        folder_id: folderId,
-        favicon,
-        metadata: metadata ? { ...metadata } : null,
-      })
+      .update(updateData)
       .eq('id', id);
 
-    if (linkError) throw linkError;
+    if (linkError) {
+      throw handleSupabaseError('updateLink', linkError, { id });
+    }
+
+    logger.debug('updateLink: Link updated, updating tags', { id });
 
     // Update tag associations atomically
     // Delete existing tags first
-    const { error: deleteTagsError } = await supabase
+    const { error: deleteTagsError } = await client
       .from('link_tags')
       .delete()
       .eq('link_id', id);
 
-    if (deleteTagsError) throw deleteTagsError;
+    if (deleteTagsError) {
+      throw handleSupabaseError('updateLink (delete tags)', deleteTagsError, { id });
+    }
 
     // Insert new tags if any
     if (tagIds.length > 0) {
-      const { error: insertTagsError } = await supabase
+      const { error: insertTagsError } = await client
         .from('link_tags')
         .insert(
           tagIds.map(tagId => ({
@@ -440,39 +599,58 @@ export const updateLink = async (
           }))
         );
 
-      if (insertTagsError) throw insertTagsError;
+      if (insertTagsError) {
+        throw handleSupabaseError('updateLink (insert tags)', insertTagsError, { id });
+      }
     }
-  } catch (error) {
-    console.error('Error updating link:', error);
+
+    logger.info('updateLink: Success', { id });
+  } catch (error: any) {
+    logger.error('updateLink: Failed', { 
+      id, 
+      error: error.message 
+    }, error);
     throw error;
   }
 };
 
 export const deleteLink = async (id: string): Promise<void> => {
-  if (!supabase) return;
+  const client = requireSupabase();
+  
   try {
-    const { error } = await supabase
+    const { error } = await client
       .from('links')
       .delete()
       .eq('id', id);
 
     if (error) throw error;
-  } catch (error) {
-    console.error('Error deleting link:', error);
+  } catch (error: any) {
+    logger.error('deleteLink: Failed', { 
+      id, 
+      error: error.message 
+    }, error);
     throw error;
   }
 };
 
 // Note operations
-export const getNotes = async (userId: string): Promise<Note[]> => {
-  if (!supabase) return [];
+export const getNotes = async (
+  userId: string,
+  page: number = 1,
+  limit: number = 50
+): Promise<{ notes: Note[]; total: number; hasMore: boolean }> => {
+  const client = requireSupabase();
+  
   try {
-    // First get all notes for the user
-    const { data: notesData, error: notesError } = await supabase
+    const offset = (page - 1) * limit;
+    
+    // First get paginated notes for the user
+    const { data: notesData, error: notesError, count } = await client
       .from('notes')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
 
     if (notesError) throw notesError;
 
@@ -481,7 +659,7 @@ export const getNotes = async (userId: string): Promise<Note[]> => {
     let noteTagsData: any[] = [];
     
     if (noteIds.length > 0) {
-      const { data: tagRelations, error: tagError } = await supabase
+      const { data: tagRelations, error: tagError } = await client
         .from('note_tags')
         .select(`
           note_id,
@@ -495,7 +673,7 @@ export const getNotes = async (userId: string): Promise<Note[]> => {
     }
 
     // Combine the data
-    return notesData.map((note: any) => ({
+    const notes = notesData.map((note: any) => ({
       id: note.id,
       title: note.title,
       content: note.content,
@@ -506,9 +684,18 @@ export const getNotes = async (userId: string): Promise<Note[]> => {
       createdAt: note.created_at,
       userId: note.user_id,
     }));
-  } catch (error) {
-    console.error('Error fetching notes:', error);
-    return [];
+
+    return {
+      notes,
+      total: count || 0,
+      hasMore: (count || 0) > offset + limit,
+    };
+  } catch (error: any) {
+    logger.error('getNotes: Failed', { 
+      userId, 
+      error: error.message 
+    }, error);
+    throw error;
   }
 };
 
@@ -519,11 +706,11 @@ export const createNote = async (
   tagIds: string[],
   userId: string
 ): Promise<Note | null> => {
-  if (!supabase) return null;
+  const client = requireSupabase();
   
   try {
     // Create the note first
-    const { data: noteData, error: noteError } = await supabase
+    const { data: noteData, error: noteError } = await client
       .from('notes')
       .insert({
         title,
@@ -543,13 +730,13 @@ export const createNote = async (
         tag_id: tagId,
       }));
 
-      const { error: tagError } = await supabase
+      const { error: tagError } = await client
         .from('note_tags')
         .insert(tagRelations);
 
       if (tagError) {
         // If tag insertion fails, delete the created note to maintain consistency
-        await supabase.from('notes').delete().eq('id', noteData.id);
+        await client.from('notes').delete().eq('id', noteData.id);
         throw tagError;
       }
     }
@@ -563,8 +750,11 @@ export const createNote = async (
       createdAt: noteData.created_at,
       userId: noteData.user_id,
     };
-  } catch (error) {
-    console.error('Error creating note:', error);
+  } catch (error: any) {
+    logger.error('createNote: Failed', { 
+      title, 
+      error: error.message 
+    }, error);
     throw error;
   }
 };
@@ -576,11 +766,11 @@ export const updateNote = async (
   folderId: string,
   tagIds: string[]
 ): Promise<void> => {
-  if (!supabase) return;
+  const client = requireSupabase();
   
   try {
     // Update the note first
-    const { error: noteError } = await supabase
+    const { error: noteError } = await client
       .from('notes')
       .update({
         title,
@@ -592,7 +782,7 @@ export const updateNote = async (
     if (noteError) throw noteError;
 
     // Delete existing tag relations
-    const { error: deleteTagError } = await supabase
+    const { error: deleteTagError } = await client
       .from('note_tags')
       .delete()
       .eq('note_id', id);
@@ -606,29 +796,253 @@ export const updateNote = async (
         tag_id: tagId,
       }));
 
-      const { error: tagError } = await supabase
+      const { error: tagError } = await client
         .from('note_tags')
         .insert(tagRelations);
 
       if (tagError) throw tagError;
     }
-  } catch (error) {
-    console.error('Error updating note:', error);
+  } catch (error: any) {
+    logger.error('updateNote: Failed', { 
+      id, 
+      error: error.message 
+    }, error);
     throw error;
   }
 };
 
 export const deleteNote = async (id: string): Promise<void> => {
-  if (!supabase) return;
+  const client = requireSupabase();
+  
   try {
-    const { error } = await supabase
+    const { error } = await client
       .from('notes')
       .delete()
       .eq('id', id);
 
     if (error) throw error;
-  } catch (error) {
-    console.error('Error deleting note:', error);
+  } catch (error: any) {
+    logger.error('deleteNote: Failed', { 
+      id, 
+      error: error.message 
+    }, error);
+    throw error;
+  }
+};
+
+// ============================================
+// Embedding operations
+// ============================================
+
+interface TextChunkWithEmbedding {
+  id: string;
+  text: string;
+  index: number;
+  embedding?: number[];
+}
+
+export const updateLinkEmbeddings = async (
+  linkId: string,
+  embedding: number[],
+  chunks: TextChunkWithEmbedding[]
+): Promise<void> => {
+  const client = requireSupabase();
+  
+  try {
+    logger.info('updateLinkEmbeddings: Starting', { 
+      linkId, 
+      embeddingLength: embedding.length, 
+      chunksCount: chunks.length
+    });
+    
+    // Update the link's main embedding and word count
+    const wordCount = chunks.reduce((acc, c) => acc + c.text.split(/\s+/).length, 0);
+    
+    logger.debug('updateLinkEmbeddings: Saving to database', { 
+      dimensions: embedding.length,
+      wordCount
+    });
+    
+    // pgvector expects array directly, not JSON string
+    const { error: linkError } = await client
+      .from('links')
+      .update({ 
+        embedding: embedding, // Pass array directly for pgvector
+        word_count: wordCount
+      })
+      .eq('id', linkId);
+
+    if (linkError) {
+      throw handleSupabaseError('updateLinkEmbeddings (link)', linkError, { linkId });
+    }
+    logger.info('updateLinkEmbeddings: Link embedding updated', { linkId });
+
+    // Delete existing chunks for this link
+    const { error: deleteError } = await client
+      .from('link_chunks')
+      .delete()
+      .eq('link_id', linkId);
+
+    if (deleteError && deleteError.code !== 'PGRST116') {
+      logger.warn('updateLinkEmbeddings: Error deleting existing chunks', { 
+        linkId, 
+        error: deleteError.message 
+      });
+    }
+
+    // Insert new chunks with embeddings
+    if (chunks.length > 0) {
+      const chunkRows = chunks
+        .filter(chunk => chunk.embedding && chunk.embedding.length > 0)
+        .map((chunk, index) => ({
+          link_id: linkId,
+          chunk_index: chunk.index !== undefined ? chunk.index : index,
+          chunk_text: chunk.text.slice(0, 10000),
+          embedding: chunk.embedding, // Pass array directly for pgvector (Supabase handles conversion)
+        }));
+
+      if (chunkRows.length > 0) {
+        logger.info('updateLinkEmbeddings: Inserting chunks', { 
+          linkId, 
+          count: chunkRows.length,
+          firstChunkEmbeddingLength: chunkRows[0]?.embedding?.length
+        });
+        
+        const { error: chunksError, data: insertedChunks } = await client
+          .from('link_chunks')
+          .insert(chunkRows)
+          .select('id');
+
+        if (chunksError) {
+          logger.error('updateLinkEmbeddings: Error inserting chunks', { 
+            linkId, 
+            error: chunksError.message,
+            errorCode: chunksError.code,
+            errorDetails: chunksError.details
+          }, chunksError);
+          // Don't throw - chunks are optional, main embedding is what matters
+        } else {
+          logger.info('updateLinkEmbeddings: Chunks inserted successfully', { 
+            linkId, 
+            count: chunkRows.length,
+            insertedIds: insertedChunks?.map(c => c.id)
+          });
+        }
+      } else {
+        logger.warn('updateLinkEmbeddings: No valid chunks to insert', { 
+          linkId,
+          totalChunks: chunks.length,
+          validChunks: chunks.filter(c => c.embedding && c.embedding.length > 0).length
+        });
+      }
+    }
+
+    logger.info('updateLinkEmbeddings: SUCCESS', { linkId });
+  } catch (error: any) {
+    logger.error('updateLinkEmbeddings: FAILED', { 
+      linkId, 
+      error: error.message 
+    }, error);
+    throw error;
+  }
+};
+
+export const updateNoteEmbeddings = async (
+  noteId: string,
+  embedding: number[],
+  chunks: TextChunkWithEmbedding[]
+): Promise<void> => {
+  const client = requireSupabase();
+  
+  try {
+    logger.info('updateNoteEmbeddings: Starting', { 
+      noteId, 
+      embeddingLength: embedding.length, 
+      chunksCount: chunks.length 
+    });
+    
+    // Update the note's main embedding - pgvector expects array directly
+    logger.debug('updateNoteEmbeddings: Saving to database', {
+      noteId,
+      dimensions: embedding.length
+    });
+    
+    const { error: noteError } = await client
+      .from('notes')
+      .update({ embedding: embedding }) // Pass array directly for pgvector
+      .eq('id', noteId);
+
+    if (noteError) {
+      throw handleSupabaseError('updateNoteEmbeddings (note)', noteError, { noteId });
+    }
+    logger.info('updateNoteEmbeddings: Note embedding updated', { noteId });
+
+    // Delete existing chunks for this note
+    const { error: deleteError } = await client
+      .from('note_chunks')
+      .delete()
+      .eq('note_id', noteId);
+
+    if (deleteError && deleteError.code !== 'PGRST116') {
+      logger.warn('updateNoteEmbeddings: Error deleting existing chunks', { 
+        noteId, 
+        error: deleteError.message 
+      });
+    }
+
+    // Insert new chunks with embeddings
+    if (chunks.length > 0) {
+      const chunkRows = chunks
+        .filter(chunk => chunk.embedding && chunk.embedding.length > 0)
+        .map((chunk, index) => ({
+          note_id: noteId,
+          chunk_index: chunk.index !== undefined ? chunk.index : index,
+          chunk_text: chunk.text.slice(0, 10000),
+          embedding: chunk.embedding, // Pass array directly for pgvector (Supabase handles conversion)
+        }));
+
+      if (chunkRows.length > 0) {
+        logger.info('updateNoteEmbeddings: Inserting chunks', { 
+          noteId, 
+          count: chunkRows.length,
+          firstChunkEmbeddingLength: chunkRows[0]?.embedding?.length
+        });
+        
+        const { error: chunksError, data: insertedChunks } = await client
+          .from('note_chunks')
+          .insert(chunkRows)
+          .select('id');
+
+        if (chunksError) {
+          logger.error('updateNoteEmbeddings: Error inserting chunks', { 
+            noteId, 
+            error: chunksError.message,
+            errorCode: chunksError.code,
+            errorDetails: chunksError.details
+          }, chunksError);
+          // Don't throw - chunks are optional
+        } else {
+          logger.info('updateNoteEmbeddings: Chunks inserted successfully', { 
+            noteId, 
+            count: chunkRows.length,
+            insertedIds: insertedChunks?.map(c => c.id)
+          });
+        }
+      } else {
+        logger.warn('updateNoteEmbeddings: No valid chunks to insert', { 
+          noteId,
+          totalChunks: chunks.length,
+          validChunks: chunks.filter(c => c.embedding && c.embedding.length > 0).length
+        });
+      }
+    }
+
+    logger.info('updateNoteEmbeddings: SUCCESS', { noteId });
+  } catch (error: any) {
+    logger.error('updateNoteEmbeddings: FAILED', { 
+      noteId, 
+      error: error.message 
+    }, error);
     throw error;
   }
 };

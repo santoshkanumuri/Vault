@@ -1,13 +1,12 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Folder, Tag, Link, Note } from '@/lib/types';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { getFolders, getTags, getLinks, getNotes, saveFolders, saveTags, saveLinks, saveNotes, getTheme, saveTheme } from '@/lib/storage';
-import { generateRandomColor } from '@/lib/utils/colors';
-import { fetchLinkMetadata } from '@/lib/utils/metadata';
 import { useAuth } from './AuthContext';
 import * as db from '@/lib/services/database';
+import { logger } from '@/lib/utils/logger';
+import { withTimeout, TimeoutError } from '@/lib/utils/timeout';
+import { batchCheckLinkStatuses, LinkStatus } from '@/lib/utils/link-status';
 
 interface AppContextType {
   folders: Folder[];
@@ -19,10 +18,16 @@ interface AppContextType {
   darkMode: boolean;
   showMetadata: boolean;
   isLoading: boolean;
+  isLoadingMore: boolean;
+  hasMoreLinks: boolean;
+  hasMoreNotes: boolean;
+  linkStatuses: Map<string, LinkStatus>;
   setCurrentFolder: (folderId: string | null) => void;
   setSearchQuery: (query: string) => void;
   toggleDarkMode: () => void;
   toggleMetadata: () => void;
+  loadMoreLinks: () => Promise<void>;
+  loadMoreNotes: () => Promise<void>;
   createFolder: (name: string, color: string) => Promise<Folder>;
   updateFolder: (id: string, name: string) => Promise<void>;
   deleteFolder: (id: string) => Promise<void>;
@@ -36,6 +41,7 @@ interface AppContextType {
   createNote: (title: string, content: string, folderId: string, tagIds: string[]) => Promise<Note>;
   updateNote: (id: string, title: string, content: string, folderId: string, tagIds: string[]) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
+  refreshNoteContent: (id: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -59,83 +65,205 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [darkMode, setDarkMode] = useState(false);
   const [showMetadata, setShowMetadata] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [linkStatuses, setLinkStatuses] = useState<Map<string, LinkStatus>>(new Map());
+  const [linksPage, setLinksPage] = useState(1);
+  const [notesPage, setNotesPage] = useState(1);
+  const [hasMoreLinks, setHasMoreLinks] = useState(true);
+  const [hasMoreNotes, setHasMoreNotes] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  const useDatabase = isSupabaseConfigured();
+  // Debug logging
+  useEffect(() => {
+    if (user) {
+      console.log('AppContext: User authenticated', { userId: user.id });
+    }
+  }, [user]);
 
   useEffect(() => {
     if (user) {
       loadData();
+    } else {
+      // Clear data when user logs out
+      setFolders([]);
+      setTags([]);
+      setLinks([]);
+      setNotes([]);
     }
-  }, [user, useDatabase]);
+  }, [user]);
 
-  const loadData = async () => {
+  // Load theme from localStorage (theme can stay in localStorage as it's a preference)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedTheme = localStorage.getItem('vault-theme');
+      if (savedTheme === 'dark') {
+        setDarkMode(true);
+      }
+    }
+  }, []);
+
+  // Use a ref to track links for polling without causing re-renders
+  const linksRef = useRef<Link[]>([]);
+  useEffect(() => {
+    linksRef.current = links;
+  }, [links]);
+
+  // Centralized polling for link processing statuses - only depends on user
+  useEffect(() => {
     if (!user) return;
 
-    setIsLoading(true);
-    try {
-      if (useDatabase) {
-        // Load from Supabase
-        const [foldersData, tagsData, linksData, notesData] = await Promise.all([
-          db.getFolders(user.id),
-          db.getTags(user.id),
-          db.getLinks(user.id),
-          db.getNotes(user.id)
-        ]);
+    let isPolling = false; // Prevent concurrent polls
 
-        setFolders(foldersData);
-        setTags(tagsData);
-        setLinks(linksData);
-        setNotes(notesData);
-
-        // Create default folder if none exist
-        if (foldersData.length === 0) {
-          await createDefaultFolder();
+    const pollProcessingStatuses = async () => {
+      if (isPolling) return; // Skip if already polling
+      isPolling = true;
+      
+      try {
+        // Use ref to get current links without triggering re-renders
+        const currentLinks = linksRef.current;
+        
+        // Only poll for links that haven't been processed yet
+        // Check embedding (could be array or pgvector string), wordCount, or fullContent
+        const processingLinks = currentLinks.filter(l => {
+          const hasEmbedding = l.embedding && (
+            (Array.isArray(l.embedding) && l.embedding.length > 0) ||
+            (typeof l.embedding === 'string' && l.embedding.length > 10)
+          );
+          const hasProcessedContent = (l.wordCount && l.wordCount > 0) || (l.fullContent && l.fullContent.length > 0);
+          return !hasEmbedding && !hasProcessedContent;
+        });
+        
+        if (processingLinks.length === 0) {
+          setLinkStatuses(new Map());
+          return;
         }
-      } else {
-        // Load from localStorage
-        const savedFolders = getFolders().filter(f => f.userId === user.id);
-        const savedTags = getTags().filter(t => t.userId === user.id);
-        const savedLinks = getLinks().filter(l => l.userId === user.id);
-        const savedNotes = getNotes().filter(n => n.userId === user.id);
 
-        setFolders(savedFolders);
-        setTags(savedTags);
-        setLinks(savedLinks);
-        setNotes(savedNotes);
-
-        // Create default folder if none exist
-        if (savedFolders.length === 0) {
-          await createDefaultFolder();
-        }
+        const linkIds = processingLinks.map(l => l.id);
+        const statuses = await batchCheckLinkStatuses(linkIds, user.id);
+        setLinkStatuses(statuses);
+      } catch (error) {
+        logger.warn('Failed to poll link statuses', { error });
+      } finally {
+        isPolling = false;
       }
+    };
 
-      const savedTheme = getTheme();
-      setDarkMode(savedTheme);
-    } catch (error) {
-      console.error('Error loading data:', error);
+    // Initial poll after a short delay to let the UI settle
+    const initialTimeout = setTimeout(pollProcessingStatuses, 1000);
+
+    // Poll every 15 seconds (less frequent to reduce load)
+    const interval = setInterval(pollProcessingStatuses, 15000);
+
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
+  }, [user]); // Only depend on user, not links
+
+  const loadData = async (reset: boolean = true) => {
+    if (!user) return;
+
+    if (reset) {
+      setIsLoading(true);
+      setLinksPage(1);
+      setNotesPage(1);
+    } else {
+      setIsLoadingMore(true);
+    }
+
+    try {
+      logger.info('Loading data from Supabase', { userId: user.id, reset });
+      
+      const page = reset ? 1 : linksPage;
+      const notesPageNum = reset ? 1 : notesPage;
+      
+      const [foldersData, tagsData, linksResult, notesResult] = await Promise.all([
+        db.getFolders(user.id),
+        db.getTags(user.id),
+        db.getLinks(user.id, page, 50),
+        db.getNotes(user.id, notesPageNum, 50)
+      ]);
+
+      logger.info('Data loaded', {
+        folders: foldersData.length,
+        tags: tagsData.length,
+        links: linksResult.links.length,
+        notes: notesResult.notes.length,
+        hasMoreLinks: linksResult.hasMore,
+        hasMoreNotes: notesResult.hasMore
+      });
+
+      setFolders(foldersData);
+      setTags(tagsData);
+      
+      if (reset) {
+        setLinks(linksResult.links);
+        setNotes(notesResult.notes);
+      } else {
+        setLinks(prev => [...prev, ...linksResult.links]);
+        setNotes(prev => [...prev, ...notesResult.notes]);
+      }
+      
+      setHasMoreLinks(linksResult.hasMore);
+      setHasMoreNotes(notesResult.hasMore);
+
+      // Create default folder if none exist
+      if (foldersData.length === 0) {
+        await createDefaultFolder();
+      }
+    } catch (error: any) {
+      logger.error('Error loading data from Supabase', { 
+        userId: user?.id,
+        error: error.message 
+      }, error);
     } finally {
       setIsLoading(false);
+      setIsLoadingMore(false);
+    }
+  };
+
+  const loadMoreLinks = async () => {
+    if (!user || isLoadingMore || !hasMoreLinks) return;
+    
+    setIsLoadingMore(true);
+    try {
+      const nextPage = linksPage + 1;
+      const result = await db.getLinks(user.id, nextPage, 50);
+      setLinks(prev => [...prev, ...result.links]);
+      setHasMoreLinks(result.hasMore);
+      setLinksPage(nextPage);
+    } catch (error: any) {
+      logger.error('Error loading more links', { error: error.message }, error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  const loadMoreNotes = async () => {
+    if (!user || isLoadingMore || !hasMoreNotes) return;
+    
+    setIsLoadingMore(true);
+    try {
+      const nextPage = notesPage + 1;
+      const result = await db.getNotes(user.id, nextPage, 50);
+      setNotes(prev => [...prev, ...result.notes]);
+      setHasMoreNotes(result.hasMore);
+      setNotesPage(nextPage);
+    } catch (error: any) {
+      logger.error('Error loading more notes', { error: error.message }, error);
+    } finally {
+      setIsLoadingMore(false);
     }
   };
 
   const createDefaultFolder = async () => {
     if (!user) return;
 
-    const defaultFolder: Folder = {
-      id: Date.now().toString(),
-      name: 'General',
-      color: generateRandomColor(),
-      createdAt: new Date().toISOString(),
-      userId: user.id,
-    };
-
     try {
-      if (useDatabase) {
-        const created = await db.createFolder(defaultFolder.name, defaultFolder.color, user.id);
-        if (created) setFolders([created]);
-      } else {
-        setFolders([defaultFolder]);
-        saveFolders([...getFolders(), defaultFolder]);
+      console.log('Creating default folder...');
+      const created = await db.createFolder('General', '#6366f1', user.id);
+      if (created) {
+        console.log('Default folder created:', created);
+        setFolders([created]);
       }
     } catch (error) {
       console.error('Error creating default folder:', error);
@@ -146,16 +274,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (typeof window !== 'undefined') {
       if (darkMode) {
         document.documentElement.classList.add('dark');
+        localStorage.setItem('vault-theme', 'dark');
       } else {
         document.documentElement.classList.remove('dark');
+        localStorage.setItem('vault-theme', 'light');
       }
     }
   }, [darkMode]);
 
   const toggleDarkMode = () => {
-    const newDarkMode = !darkMode;
-    setDarkMode(newDarkMode);
-    saveTheme(newDarkMode);
+    setDarkMode(!darkMode);
   };
 
   const toggleMetadata = () => {
@@ -163,74 +291,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const createFolder = async (name: string, color: string): Promise<Folder> => {
-    if (!user) throw new Error('User not authenticated');
+    if (!user) {
+      console.error('createFolder: User not authenticated');
+      throw new Error('User not authenticated');
+    }
 
-    setIsLoading(true);
     try {
-      if (useDatabase) {
-        const folder = await db.createFolder(name, color, user.id);
-        if (!folder) throw new Error('Folder creation failed in database');
-        setFolders(prev => [...prev, folder]);
-        return folder;
-      } else {
-        const folder: Folder = {
-          id: Date.now().toString(),
-          name,
-          color,
-          createdAt: new Date().toISOString(),
-          userId: user.id,
-        };
-
-        const newFolders = [...folders, folder];
-        setFolders(newFolders);
-        saveFolders([...getFolders(), folder]);
-        return folder;
+      console.log('createFolder: Creating folder in Supabase...', { name, color, userId: user.id });
+      const folder = await db.createFolder(name, color, user.id);
+      if (!folder) {
+        console.error('createFolder: Database returned null');
+        throw new Error('Folder creation failed in database');
       }
+      console.log('createFolder: Success, folder:', folder);
+      setFolders(prev => [...prev, folder]);
+      return folder;
     } catch (error) {
       console.error('Error creating folder:', error);
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const updateFolder = async (id: string, name: string) => {
-    setIsLoading(true);
     try {
-      if (useDatabase) {
-        await db.updateFolder(id, name);
-      } else {
-        const allFolders = getFolders().map(f => f.id === id ? { ...f, name } : f);
-        saveFolders(allFolders);
-      }
-
+      console.log('updateFolder: Updating folder...', { id, name });
+      await db.updateFolder(id, name);
       setFolders(prev => prev.map(f => f.id === id ? { ...f, name } : f));
+      console.log('updateFolder: Success');
     } catch (error) {
       console.error('Error updating folder:', error);
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const deleteFolder = async (id: string) => {
-    setIsLoading(true);
     try {
-      if (useDatabase) {
-        await db.deleteFolder(id);
-      } else {
-        // For localStorage, we need to handle cascading deletes manually
-        const allFolders = getFolders().filter(f => f.id !== id);
-        saveFolders(allFolders);
-
-        // Remove links in this folder
-        const allLinks = getLinks().filter(l => l.folderId !== id);
-        saveLinks(allLinks);
-
-        // Remove notes in this folder
-        const allNotes = getNotes().filter(n => n.folderId !== id);
-        saveNotes(allNotes);
-      }
+      console.log('deleteFolder: Deleting folder...', { id });
+      await db.deleteFolder(id);
 
       // Update local state
       setFolders(prev => prev.filter(f => f.id !== id));
@@ -240,89 +337,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (currentFolder === id) {
         setCurrentFolder(null);
       }
+      console.log('deleteFolder: Success');
     } catch (error) {
       console.error('Error deleting folder:', error);
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const createTag = async (name: string, color: string): Promise<Tag> => {
-    if (!user) throw new Error('User not authenticated');
+    if (!user) {
+      console.error('createTag: User not authenticated');
+      throw new Error('User not authenticated');
+    }
 
-    setIsLoading(true);
     try {
-      if (useDatabase) {
-        const tag = await db.createTag(name, color, user.id);
-        if (!tag) throw new Error('Tag creation failed in database');
-        setTags(prev => [...prev, tag]);
-        return tag;
-      } else {
-        const tag: Tag = {
-          id: Date.now().toString(),
-          name,
-          color,
-          createdAt: new Date().toISOString(),
-          userId: user.id,
-        };
-
-        const newTags = [...tags, tag];
-        setTags(newTags);
-        saveTags([...getTags(), tag]);
-        return tag;
+      console.log('createTag: Creating tag in Supabase...', { name, color, userId: user.id });
+      const tag = await db.createTag(name, color, user.id);
+      if (!tag) {
+        console.error('createTag: Database returned null');
+        throw new Error('Tag creation failed in database');
       }
+      console.log('createTag: Success, tag:', tag);
+      setTags(prev => [...prev, tag]);
+      return tag;
     } catch (error) {
       console.error('Error creating tag:', error);
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const updateTag = async (id: string, name: string, color: string) => {
-    setIsLoading(true);
     try {
-      if (useDatabase) {
-        await db.updateTag(id, name, color);
-      } else {
-        const allTags = getTags().map(t => t.id === id ? { ...t, name, color } : t);
-        saveTags(allTags);
-      }
-
+      console.log('updateTag: Updating tag...', { id, name, color });
+      await db.updateTag(id, name, color);
       setTags(prev => prev.map(t => t.id === id ? { ...t, name, color } : t));
+      console.log('updateTag: Success');
     } catch (error) {
       console.error('Error updating tag:', error);
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const deleteTag = async (id: string) => {
-    setIsLoading(true);
     try {
-      if (useDatabase) {
-        await db.deleteTag(id);
-      } else {
-        // For localStorage, handle cascading updates manually
-        const allTags = getTags().filter(t => t.id !== id);
-        saveTags(allTags);
-
-        // Remove tag from all links
-        const allLinks = getLinks().map(l => ({
-          ...l,
-          tagIds: l.tagIds.filter(tagId => tagId !== id)
-        }));
-        saveLinks(allLinks);
-
-        // Remove tag from all notes
-        const allNotes = getNotes().map(n => ({
-          ...n,
-          tagIds: n.tagIds.filter(tagId => tagId !== id)
-        }));
-        saveNotes(allNotes);
-      }
+      console.log('deleteTag: Deleting tag...', { id });
+      await db.deleteTag(id);
 
       // Update local state
       setTags(prev => prev.filter(t => t.id !== id));
@@ -334,34 +393,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...n,
         tagIds: n.tagIds.filter(tagId => tagId !== id)
       })));
+      console.log('deleteTag: Success');
     } catch (error) {
       console.error('Error deleting tag:', error);
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 
+  // Queue link processing tasks (content extraction + embeddings) - runs in background
+  const queueLinkProcessingTasks = async (linkId: string, url: string): Promise<void> => {
+    if (!user) return;
+    
+    logger.info('Queueing link processing tasks', { linkId, url });
+    
+    // Run in background using setTimeout to not block
+    setTimeout(async () => {
+      try {
+        await processLinkContentInBackground(linkId, url);
+      } catch (error: any) {
+        logger.warn('Background link processing failed', { 
+          linkId, 
+          error: error.message 
+        });
+      }
+    }, 100);
+  };
+
   const createLink = async (name: string, url: string, description: string, folderId: string, tagIds: string[]): Promise<Link> => {
-    if (!user) throw new Error('User not authenticated');
+    if (!user) {
+      const error = new Error('User not authenticated');
+      console.error('createLink: User not authenticated');
+      throw error;
+    }
 
     setIsLoading(true);
+    console.log('createLink: Starting...', { name, url, folderId, tagCount: tagIds.length });
+    
     try {
-      // Fetch metadata for the link
-      const metadata = await fetchLinkMetadata(url);
-
+      // Create the link IMMEDIATELY with minimal data - don't wait for metadata
+      // This makes the UI responsive right away
+      console.log('createLink: Creating link in database...');
+      
       const linkData = {
-        name: name || metadata.title || 'Untitled Link',
+        name: name || 'Untitled Link',
         url,
-        description: description || metadata.description || '',
+        description: description || '',
         folderId,
         tagIds,
-        favicon: metadata.favicon,
-        metadata,
+        favicon: null,
+        metadata: null,
       };
 
-      if (useDatabase) {
-        const link = await db.createLink(
+      // Create the link quickly without waiting for metadata - with timeout
+      const dbTimeout = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Database operation timed out')), 10000);
+      });
+      
+      const link = await Promise.race([
+        db.createLink(
           linkData.name,
           linkData.url,
           linkData.description,
@@ -370,28 +459,223 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           linkData.tagIds,
           linkData.favicon,
           linkData.metadata
-        );
-        if (!link) throw new Error('Link creation failed in database');
-        setLinks(prev => [...prev, link]);
-        return link;
-      } else {
-        const link: Link = {
-          id: Date.now().toString(),
-          ...linkData,
-          createdAt: new Date().toISOString(),
-          userId: user.id,
-        };
-
-        const newLinks = [...links, link];
-        setLinks(newLinks);
-        saveLinks([...getLinks(), link]);
-        return link;
+        ),
+        dbTimeout
+      ]);
+      
+      console.log('createLink: Database call returned', { link });
+      
+      if (!link) {
+        setIsLoading(false);
+        const error = new Error('Link creation failed in database - null returned');
+        console.error('createLink: Failed - null link returned');
+        throw error;
       }
+      
+      console.log('createLink: Success! Link created:', link.id);
+      setLinks(prev => {
+        console.log('createLink: Adding link to state, current count:', prev.length);
+        return [...prev, link];
+      });
+      
+      // Release UI immediately - don't wait for metadata
+      setIsLoading(false);
+      console.log('createLink: Loading state released');
+      
+      // Fetch metadata in the background and update the link (non-blocking)
+      // Use a shorter timeout to prevent hanging
+      setTimeout(() => {
+        (async () => {
+          try {
+            // Use a shorter timeout for initial metadata fetch
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 seconds max
+            
+            const baseUrl = typeof window === 'undefined' 
+              ? (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000')
+              : '';
+            
+            const response = await fetch(
+              `${baseUrl}/api/metadata?url=${encodeURIComponent(url)}`,
+              { signal: controller.signal }
+            ).finally(() => clearTimeout(timeoutId));
+            
+            if (response.ok) {
+              const metadata = await response.json();
+              
+              // Update the link with metadata using db.updateLink directly
+              await db.updateLink(
+                link.id,
+                name || metadata.title || link.name,
+                url,
+                description || metadata.description || link.description,
+                folderId,
+                tagIds,
+                metadata.favicon,
+                metadata
+              );
+              
+              // Update local state
+              setLinks(prev => prev.map(l => 
+                l.id === link.id 
+                  ? { 
+                      ...l, 
+                      name: name || metadata.title || l.name, 
+                      description: description || metadata.description || l.description, 
+                      favicon: metadata.favicon, 
+                      metadata 
+                    }
+                  : l
+              ));
+              
+              console.log('createLink: Metadata updated in background', { linkId: link.id });
+            }
+          } catch (err: any) {
+            // Silently fail - metadata fetch is optional
+            if (err.name !== 'AbortError') {
+              logger.warn('createLink: Background metadata fetch failed', { 
+                linkId: link.id, 
+                error: err.message 
+              });
+            }
+          }
+        })().catch(() => {
+          // Ignore errors - metadata is optional
+        });
+      }, 100); // Small delay to ensure main function returns first
+      
+      // Queue background tasks for server-side processing (full content extraction)
+      setTimeout(() => {
+        queueLinkProcessingTasks(link.id, url).catch((err) => {
+          logger.warn('createLink: Failed to queue background tasks', { 
+            linkId: link.id, 
+            error: err.message 
+          });
+        });
+      }, 200);
+      
+      return link;
     } catch (error) {
       console.error('Error creating link:', error);
-      throw error;
-    } finally {
       setIsLoading(false);
+      throw error;
+    }
+  };
+
+  // Background content processing - completely non-blocking with timeout (DEPRECATED - use queueLinkProcessingTasks)
+  const processLinkContentInBackground = async (linkId: string, url: string) => {
+    const abortController = new AbortController();
+    const timeoutMs = 30000; // 30 seconds timeout (much faster now)
+    
+    try {
+      logger.info('Background: Starting metadata extraction', { linkId, url });
+      
+      // Fetch metadata only (no full content)
+      const metadataPromise = fetch(
+        `/api/metadata?url=${encodeURIComponent(url)}`,
+        { signal: abortController.signal }
+      );
+      
+      const metadataResponse = await withTimeout(
+        metadataPromise,
+        timeoutMs,
+        'Metadata extraction timed out'
+      );
+      
+      if (!metadataResponse.ok) {
+        logger.warn('Background: Failed to fetch metadata', { 
+          linkId, 
+          status: metadataResponse.status 
+        });
+        return;
+      }
+      
+      const metadata = await metadataResponse.json();
+      
+      // Build text for embedding: title + description
+      const link = links.find(l => l.id === linkId);
+      const title = link?.name || metadata.title || '';
+      const description = metadata.description || '';
+      const textToEmbed = [title, description].filter(Boolean).join(' ').trim();
+      
+      if (!textToEmbed || textToEmbed.length < 10) {
+        logger.info('Background: Metadata too short, skipping embeddings', { 
+          linkId, 
+          length: textToEmbed.length 
+        });
+        return;
+      }
+      
+      logger.info('Background: Metadata extracted, generating embeddings', { 
+        linkId,
+        textLength: textToEmbed.length 
+      });
+      
+      // Generate embeddings (no chunking for simple metadata)
+      const embeddingPromise = fetch('/api/embeddings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          texts: [textToEmbed],
+          chunk: false, // No chunking for metadata
+        }),
+        signal: abortController.signal,
+      });
+      
+      const embeddingResponse = await withTimeout(
+        embeddingPromise,
+        timeoutMs,
+        'Embedding generation timed out'
+      );
+      
+      if (!embeddingResponse.ok) {
+        const errorText = await embeddingResponse.text();
+        logger.warn('Background: Embedding generation failed', { 
+          linkId, 
+          status: embeddingResponse.status,
+          error: errorText 
+        });
+        return;
+      }
+      
+      const embeddingData = await embeddingResponse.json();
+      
+      if (!embeddingData.embeddings || embeddingData.embeddings.length === 0) {
+        logger.warn('Background: No embeddings returned', { linkId });
+        return;
+      }
+      
+      // Get the single embedding (no chunks for metadata-only)
+      const embedding = embeddingData.embeddings[0]?.embedding;
+      if (!embedding || embedding.length === 0) {
+        logger.warn('Background: Invalid embedding returned', { linkId });
+        return;
+      }
+      
+      // Save embeddings (no chunks)
+      await db.updateLinkEmbeddings(linkId, embedding, []);
+      
+      // Update local state
+      setLinks(prev => prev.map(l => l.id === linkId ? { 
+        ...l, 
+        embedding: embedding,
+        metadata: metadata,
+      } : l));
+      
+      logger.info('Background: SUCCESS! Embeddings saved', { linkId });
+    } catch (error: any) {
+      if (error.name === 'AbortError' || error instanceof TimeoutError) {
+        logger.warn('Background: Metadata processing timed out', { linkId, url });
+      } else {
+        logger.warn('Background: Metadata processing failed', { 
+          linkId, 
+          url,
+          error: error.message 
+        }, error);
+      }
+      // Silently fail - the link is already created
+    } finally {
+      abortController.abort();
     }
   };
 
@@ -401,12 +685,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const existingLink = links.find(l => l.id === id);
       let metadata = existingLink?.metadata;
       let favicon = existingLink?.favicon;
+      const urlChanged = existingLink && existingLink.url !== url;
 
-      // If URL changed, fetch new metadata
-      if (existingLink && existingLink.url !== url) {
-        const newMetadata = await fetchLinkMetadata(url);
-        metadata = newMetadata;
-        favicon = newMetadata.favicon;
+      // If URL changed, fetch new basic metadata (with timeout)
+      if (urlChanged) {
+        console.log('updateLink: URL changed, fetching new metadata...');
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          
+          const response = await fetch(
+            `/api/metadata?url=${encodeURIComponent(url)}`,
+            { signal: controller.signal }
+          ).finally(() => clearTimeout(timeoutId));
+          
+          if (response.ok) {
+            const newMetadata = await response.json();
+            metadata = newMetadata;
+            favicon = newMetadata.favicon;
+          }
+        } catch (err: any) {
+          // Metadata fetch failed - continue with update anyway
+          if (err.name !== 'AbortError') {
+            logger.warn('updateLink: Metadata fetch failed', { id, error: err.message });
+          }
+        }
       }
 
       const linkData = {
@@ -419,8 +722,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         metadata
       };
 
-      if (useDatabase) {
-        await db.updateLink(
+      console.log('updateLink: Updating link in Supabase...', { id, linkData });
+      
+      // Database operation with timeout
+      const dbTimeout = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Database operation timed out')), 10000);
+      });
+      
+      await Promise.race([
+        db.updateLink(
           id, 
           linkData.name,
           linkData.url,
@@ -429,37 +739,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           linkData.tagIds,
           linkData.favicon,
           linkData.metadata
-        );
-      } else {
-        const allLinks = getLinks().map(l => l.id === id ? { ...l, ...linkData } : l);
-        saveLinks(allLinks);
-      }
+        ),
+        dbTimeout
+      ]);
 
       setLinks(prev => prev.map(l => l.id === id ? { ...l, ...linkData } : l));
+      console.log('updateLink: Success');
+      
+      // Release UI immediately
+      setIsLoading(false);
+      
+      // If URL changed, queue re-processing tasks
+      if (urlChanged) {
+        setTimeout(() => {
+          queueLinkProcessingTasks(id, url).catch((err) => {
+            logger.warn('updateLink: Failed to queue background tasks', { 
+              linkId: id, 
+              error: err.message 
+            });
+          });
+        }, 100);
+      }
     } catch (error) {
       console.error('Error updating link:', error);
-      throw error;
-    } finally {
       setIsLoading(false);
+      throw error;
     }
   };
 
   const deleteLink = async (id: string) => {
-    setIsLoading(true);
+    // Don't use global loading for quick delete operations
     try {
-      if (useDatabase) {
-        await db.deleteLink(id);
-      } else {
-        const allLinks = getLinks().filter(l => l.id !== id);
-        saveLinks(allLinks);
-      }
-
+      console.log('deleteLink: Deleting link...', { id });
+      // Optimistically update UI first
       setLinks(prev => prev.filter(l => l.id !== id));
+      await db.deleteLink(id);
+      console.log('deleteLink: Success');
     } catch (error) {
       console.error('Error deleting link:', error);
+      // Rollback: reload data on error
+      if (user) loadData();
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -467,37 +787,133 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const link = links.find(l => l.id === id);
     if (!link) return;
 
-    setIsLoading(true);
+    // Don't use global loading - this runs in background
     try {
-      const metadata = await fetchLinkMetadata(link.url);
+      console.log('refreshLinkMetadata: Fetching metadata...', { url: link.url });
+      
+      // Fetch metadata with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(
+        `/api/metadata?url=${encodeURIComponent(link.url)}`,
+        { signal: controller.signal }
+      ).finally(() => clearTimeout(timeoutId));
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch metadata');
+      }
+      
+      const metadata = await response.json();
 
       const updatedData = {
         favicon: metadata.favicon,
         metadata
       };
 
-      if (useDatabase) {
-        await db.updateLink(
-          id,
-          link.name,
-          link.url,
-          link.description,
-          link.folderId,
-          link.tagIds,
-          updatedData.favicon,
-          updatedData.metadata
-          );
-      } else {
-        const allLinks = getLinks().map(l => l.id === id ? { ...l, ...updatedData } : l);
-        saveLinks(allLinks);
+      console.log('refreshLinkMetadata: Updating link...', { id, updatedData });
+      await db.updateLink(
+        id,
+        metadata.title || link.name,
+        link.url,
+        metadata.description || link.description,
+        link.folderId,
+        link.tagIds,
+        updatedData.favicon,
+        updatedData.metadata
+      );
+
+      // Generate embeddings from title and description
+      const textToEmbed = [
+        metadata.title || link.name,
+        metadata.description || link.description
+      ].filter(Boolean).join(' ').trim();
+      
+      if (textToEmbed.length >= 10) {
+        console.log('refreshLinkMetadata: Generating embeddings...', { id, textLength: textToEmbed.length });
+        
+        try {
+          const embeddingResponse = await fetch('/api/embeddings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              texts: [textToEmbed],
+              chunk: false,
+            }),
+          });
+          
+          if (embeddingResponse.ok) {
+            const embeddingData = await embeddingResponse.json();
+            const embedding = embeddingData.embeddings?.[0]?.embedding;
+            
+            if (embedding && embedding.length > 0) {
+              // Save embedding to database
+              await db.updateLinkEmbeddings(id, embedding, []);
+              
+              // Update local state with embedding
+              setLinks(prev => prev.map(l => 
+                l.id === id 
+                  ? { 
+                      ...l, 
+                      ...updatedData,
+                      name: metadata.title || l.name,
+                      description: metadata.description || l.description,
+                      embedding 
+                    }
+                  : l
+              ));
+              console.log('refreshLinkMetadata: Embeddings saved', { id });
+              return;
+            }
+          }
+        } catch (embeddingError: any) {
+          logger.warn('refreshLinkMetadata: Embedding generation failed', { 
+            id, 
+            error: embeddingError.message 
+          });
+        }
       }
 
-      setLinks(prev => prev.map(l => l.id === id ? { ...l, ...updatedData } : l));
+      // Update local state without embeddings if embedding generation failed or text too short
+      setLinks(prev => prev.map(l => 
+        l.id === id 
+          ? { 
+              ...l, 
+              ...updatedData,
+              name: metadata.title || l.name,
+              description: metadata.description || l.description,
+            }
+          : l
+      ));
+      console.log('refreshLinkMetadata: Success');
     } catch (error) {
       console.error('Failed to refresh metadata:', error);
-    } finally {
-      setIsLoading(false);
+      throw error;
     }
+  };
+
+  
+  // Helper function to calculate average embedding
+  const calculateAverageEmbedding = (embeddings: number[][]): number[] => {
+    if (embeddings.length === 0) return [];
+    
+    const dimensions = embeddings[0].length;
+    const result = new Array(dimensions).fill(0);
+    
+    for (const embedding of embeddings) {
+      for (let i = 0; i < dimensions; i++) {
+        result[i] += embedding[i];
+      }
+    }
+    
+    // Normalize
+    const magnitude = Math.sqrt(
+      result.reduce((sum, val) => sum + (val / embeddings.length) ** 2, 0)
+    );
+    
+    return result.map(val => 
+      magnitude > 0 ? (val / embeddings.length) / magnitude : 0
+    );
   };
 
   const createNote = async (title: string, content: string, folderId: string, tagIds: string[]): Promise<Note> => {
@@ -505,43 +921,86 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setIsLoading(true);
     try {
-      const note: Note = {
-        id: Date.now().toString(),
+      console.log('createNote: Creating note in Supabase...', { title, folderId });
+      const createdNote = await db.createNote(
         title,
         content,
         folderId,
         tagIds,
-        createdAt: new Date().toISOString(),
-        userId: user.id,
-      };
-
-      if (useDatabase) {
-        const createdNote = await db.createNote(
-          note.title,
-          note.content,
-          note.folderId,
-          note.tagIds,
-          user.id
-        );
-        if (!createdNote) throw new Error('Note creation failed in database');
-        setNotes(prev => [...prev, createdNote]);
-        return createdNote;
-      } else {
-        setNotes(prev => [...prev, note]);
-        saveNotes([...getNotes(), note]);
-        return note;
+        user.id
+      );
+      
+      if (!createdNote) throw new Error('Note creation failed in database');
+      
+      console.log('createNote: Success, note:', createdNote.id);
+      setNotes(prev => [...prev, createdNote]);
+      
+      // Release UI immediately
+      setIsLoading(false);
+      
+      // Queue embeddings task (server-side processing)
+      if (content && content.length > 50) {
+        queueNoteEmbeddingsTask(createdNote.id).catch((err) => {
+          logger.warn('createNote: Failed to queue embeddings task', { 
+            noteId: createdNote.id, 
+            error: err.message 
+          });
+        });
       }
+      
+      return createdNote;
     } catch (error) {
       console.error('Error creating note:', error);
-      throw error;
-    } finally {
       setIsLoading(false);
+      throw error;
+    }
+  };
+
+  // Queue note embeddings task (server-side processing)
+  const queueNoteEmbeddingsTask = async (noteId: string) => {
+    if (!user) return;
+    
+    try {
+      logger.info('Queueing note embeddings task', { noteId });
+      
+      await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          taskType: 'note_embeddings',
+          entityType: 'note',
+          entityId: noteId,
+          payload: {},
+          priority: 5,
+          maxRetries: 3,
+        }),
+      });
+      
+      logger.info('Note embeddings task queued', { noteId });
+      
+      // Trigger worker to process tasks immediately (non-blocking)
+      fetch('/api/tasks/worker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ maxTasks: 5, userId: user.id }),
+      }).catch(() => {
+        // Worker call is optional
+      });
+    } catch (error: any) {
+      logger.warn('Failed to queue note embeddings task', { 
+        noteId, 
+        error: error.message 
+      });
     }
   };
 
   const updateNote = async (id: string, title: string, content: string, folderId: string, tagIds: string[]) => {
     setIsLoading(true);
     try {
+      const existingNote = notes.find(n => n.id === id);
+      const contentChanged = existingNote && (existingNote.title !== title || existingNote.content !== content);
+      
       const noteData = {
         title,
         content,
@@ -549,44 +1008,80 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         tagIds
       };
 
-      if (useDatabase) {
-        await db.updateNote(
-          id, 
-          noteData.title,
-          noteData.content,
-          noteData.folderId,
-          noteData.tagIds
-        );
-      } else {
-        const allNotes = getNotes().map(n => n.id === id ? { ...n, ...noteData } : n);
-        saveNotes(allNotes);
-      }
+      console.log('updateNote: Updating note in Supabase...', { id, noteData });
+      await db.updateNote(
+        id, 
+        noteData.title,
+        noteData.content,
+        noteData.folderId,
+        noteData.tagIds
+      );
 
       setNotes(prev => prev.map(n => n.id === id ? { ...n, ...noteData } : n));
+      console.log('updateNote: Success');
+      
+      // Release UI immediately
+      setIsLoading(false);
+      
+      // Re-generate embeddings in background if content changed
+      if (contentChanged && content && content.length > 50) {
+        queueNoteEmbeddingsTask(id).catch((err) => {
+          logger.warn('updateNote: Failed to queue embeddings task', { 
+            noteId: id, 
+            error: err.message 
+          });
+        });
+      }
     } catch (error) {
       console.error('Error updating note:', error);
-      throw error;
-    } finally {
       setIsLoading(false);
+      throw error;
+    }
+  };
+
+  // Refresh note embeddings (queues server-side task)
+  const refreshNoteContent = async (id: string) => {
+    if (!user) throw new Error('User not authenticated');
+    
+    const note = notes.find(n => n.id === id);
+    if (!note) {
+      logger.error('refreshNoteContent: Note not found', { id });
+      throw new Error('Note not found');
+    }
+
+    try {
+      logger.info('refreshNoteContent: Queueing refresh task', { id });
+      
+      // Queue refresh task (server-side processing)
+      await queueNoteEmbeddingsTask(id);
+      
+      // Trigger immediate processing
+      await fetch('/api/tasks/worker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ maxTasks: 1, userId: user.id }),
+      });
+      
+      logger.info('refreshNoteContent: Task queued', { id });
+    } catch (error: any) {
+      logger.error('refreshNoteContent: Failed to queue task', { id, error: error.message }, error);
+      throw error;
     }
   };
 
   const deleteNote = async (id: string) => {
-    setIsLoading(true);
+    // Don't use global loading for quick delete operations
     try {
-      if (useDatabase) {
-        await db.deleteNote(id);
-      } else {
-        const allNotes = getNotes().filter(n => n.id !== id);
-        saveNotes(allNotes);
-      }
-
+      console.log('deleteNote: Deleting note...', { id });
+      // Optimistically update UI first
       setNotes(prev => prev.filter(n => n.id !== id));
+      await db.deleteNote(id);
+      console.log('deleteNote: Success');
     } catch (error) {
       console.error('Error deleting note:', error);
+      // Rollback: reload data on error
+      if (user) loadData();
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -601,10 +1096,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       darkMode,
       showMetadata,
       isLoading,
+      isLoadingMore,
+      hasMoreLinks,
+      hasMoreNotes,
+      linkStatuses,
       setCurrentFolder,
       setSearchQuery,
       toggleDarkMode,
       toggleMetadata,
+      loadMoreLinks,
+      loadMoreNotes,
       createFolder,
       updateFolder,
       deleteFolder,
@@ -618,6 +1119,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createNote,
       updateNote,
       deleteNote,
+      refreshNoteContent,
     }}>
       {children}
     </AppContext.Provider>

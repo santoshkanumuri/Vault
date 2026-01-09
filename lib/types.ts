@@ -26,6 +26,25 @@ export interface Tag {
   userId: string;
 }
 
+// Text chunk for embedding
+export interface TextChunk {
+  id: string;
+  text: string;
+  index: number;
+  embedding?: number[];
+}
+
+// Extended link metadata with content and embeddings
+export interface LinkContent {
+  fullText: string;
+  contentType: 'article' | 'tweet' | 'video' | 'webpage' | 'unknown';
+  author?: string;
+  publishedDate?: string;
+  wordCount: number;
+  chunks?: TextChunk[];
+  embedding?: number[];  // Average embedding of all chunks
+}
+
 export interface Link {
   id: string;
   name: string;
@@ -37,6 +56,13 @@ export interface Link {
   userId: string;
   favicon?: string;
   metadata?: LinkMetadata;
+  // Fields for semantic search (stored directly in database)
+  fullContent?: string;
+  contentType?: string;
+  author?: string;
+  wordCount?: number;
+  embedding?: number[];
+  chunks?: TextChunk[];
 }
 
 export interface Note {
@@ -47,6 +73,9 @@ export interface Note {
   tagIds: string[];
   createdAt: string;
   userId: string;
+  // New fields for semantic search
+  chunks?: TextChunk[];
+  embedding?: number[];
 }
 
 export interface AuthState {
@@ -62,4 +91,22 @@ export interface AppState {
   currentFolder: string | null;
   searchQuery: string;
   darkMode: boolean;
+}
+
+// Search result types
+export interface SearchMatch {
+  type: 'keyword' | 'semantic' | 'hybrid';
+  score: number;
+  field: string;
+  chunkIndex?: number;
+  highlightText?: string;
+}
+
+export interface HybridSearchResult {
+  type: 'link' | 'note';
+  item: Link | Note;
+  keywordScore: number;
+  semanticScore: number;
+  combinedScore: number;
+  matches: SearchMatch[];
 }

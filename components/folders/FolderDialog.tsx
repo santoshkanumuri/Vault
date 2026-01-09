@@ -23,9 +23,10 @@ interface FolderDialogProps {
 
 export const FolderDialog: React.FC<FolderDialogProps> = ({ open, onOpenChange, folder }) => {
   const { createFolder, updateFolder } = useApp();
-  const [isLoading, setIsLoading] = useState(false);
   const [name, setName] = useState('');
   const [color, setColor] = useState(PREDEFINED_COLORS[0]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (open) {
@@ -36,35 +37,55 @@ export const FolderDialog: React.FC<FolderDialogProps> = ({ open, onOpenChange, 
         setName('');
         setColor(PREDEFINED_COLORS[0]);
       }
+      setError('');
+      setIsSubmitting(false);
     }
   }, [open, folder]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name) return;
+    if (!name.trim()) return;
 
-    setIsLoading(true);
+    setIsSubmitting(true);
+    setError('');
+    
     try {
       if (folder) {
-        await updateFolder(folder.id, name);
+        await updateFolder(folder.id, name.trim());
       } else {
-        await createFolder(name, color);
+        const newFolder = await createFolder(name.trim(), color);
+        console.log('FolderDialog: Folder created successfully:', newFolder);
       }
       onOpenChange(false);
-    } catch (error) {
-      console.error('Error saving folder:', error);
+    } catch (error: any) {
+      console.error('FolderDialog: Error saving folder:', error);
+      const errorMessage = error?.message || 'Failed to save folder. Please try again.';
+      setError(errorMessage);
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
+  // Prevent dialog from closing during submission
+  const handleOpenChange = (newOpen: boolean) => {
+    if (isSubmitting && !newOpen) {
+      return;
+    }
+    onOpenChange(newOpen);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>{folder ? 'Edit Folder' : 'Create New Folder'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg">
+              {error}
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="name">Folder Name</Label>
             <Input
@@ -73,6 +94,7 @@ export const FolderDialog: React.FC<FolderDialogProps> = ({ open, onOpenChange, 
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Design Resources"
               required
+              autoFocus
             />
           </div>
           <div className="space-y-2">
@@ -80,11 +102,11 @@ export const FolderDialog: React.FC<FolderDialogProps> = ({ open, onOpenChange, 
             <ColorPicker selectedColor={color} onColorChange={setColor} />
           </div>
           <div className="flex justify-end space-x-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading || !name}>
-              {isLoading ? (
+            <Button type="submit" disabled={isSubmitting || !name.trim()}>
+              {isSubmitting ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {folder ? 'Saving...' : 'Creating...'}</>
               ) : (
                 folder ? 'Save Changes' : 'Create Folder'

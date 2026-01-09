@@ -2,14 +2,13 @@
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { User } from '@/lib/types';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { saveUser, getUser, removeUser } from '@/lib/storage';
+import { supabase } from '@/lib/supabase';
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<boolean>;
-  register: (email: string, password: string, name: string) => Promise<boolean>;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  register: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
   updateMetadataPreference: (showMetadata: boolean) => Promise<void>;
   isLoading: boolean;
 }
@@ -29,39 +28,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   // Helper function to load user data from database
-  const loadUserData = useCallback(async (authUser: any): Promise<User> => {
-    try {
-      if (supabase) {
-        const { data: userData, error } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', authUser.id)
-          .single();
-
-        if (error && error.code !== 'PGRST116') {
-          console.error('Error fetching user data:', error);
-        }
-
-        return {
-          id: authUser.id,
-          email: authUser.email || '',
-          name: userData?.name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || '',
-          showMetadata: userData?.show_metadata ?? true,
-          createdAt: userData?.created_at || authUser.created_at || new Date().toISOString(),
-        };
-      }
-    } catch (error) {
-      console.error('Error loading user data:', error);
+  const loadUserData = useCallback(async (authUser: any): Promise<User | null> => {
+    if (!supabase) {
+      console.error('Supabase is not configured');
+      return null;
     }
 
-    // Fallback user data
-    return {
-      id: authUser.id,
-      email: authUser.email || '',
-      name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || '',
-      showMetadata: true,
-      createdAt: authUser.created_at || new Date().toISOString(),
-    };
+    try {
+      const { data: userData, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching user data:', error);
+      }
+
+      return {
+        id: authUser.id,
+        email: authUser.email || '',
+        name: userData?.name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || '',
+        showMetadata: userData?.show_metadata ?? true,
+        createdAt: userData?.created_at || authUser.created_at || new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error('Error loading user data:', error);
+      return null;
+    }
   }, []);
 
   useEffect(() => {
@@ -69,54 +63,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let authSubscription: any = null;
 
     const initializeAuth = async () => {
+      if (!supabase) {
+        console.error('Supabase is not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local');
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        if (isSupabaseConfigured() && supabase) {
-          // Get initial session
-          const { data: { session }, error } = await supabase.auth.getSession();
-          
-          if (!isMounted) return;
+        // Get initial session
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (!isMounted) return;
 
-          if (error) {
-            console.error('Session error:', error);
-            setIsLoading(false);
-            return;
-          }
+        if (error) {
+          console.error('Session error:', error);
+          setIsLoading(false);
+          return;
+        }
 
-          // Set user if session exists
-          if (session?.user) {
-            const userData = await loadUserData(session.user);
-            if (isMounted) {
-              setUser(userData);
-            }
-          }
-
-          if (isMounted) {
-            setIsLoading(false);
-          }
-
-          // Set up auth state listener
-          const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (event, session) => {
-              if (!isMounted) return;
-
-              if (session?.user) {
-                const userData = await loadUserData(session.user);
-                setUser(userData);
-              } else {
-                setUser(null);
-              }
-            }
-          );
-
-          authSubscription = subscription;
-        } else {
-          // Fallback to localStorage
-          const savedUser = getUser();
-          if (isMounted) {
-            setUser(savedUser);
-            setIsLoading(false);
+        // Set user if session exists
+        if (session?.user) {
+          const userData = await loadUserData(session.user);
+          if (isMounted && userData) {
+            setUser(userData);
           }
         }
+
+        if (isMounted) {
+          setIsLoading(false);
+        }
+
+        // Set up auth state listener
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+          async (event, session) => {
+            if (!isMounted) return;
+
+            if (session?.user) {
+              const userData = await loadUserData(session.user);
+              if (userData) {
+                setUser(userData);
+              }
+            } else {
+              setUser(null);
+            }
+          }
+        );
+
+        authSubscription = subscription;
       } catch (error) {
         console.error('Auth initialization error:', error);
         if (isMounted) {
@@ -144,148 +137,107 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [loadUserData]);
 
-  const login = useCallback(async (email: string, password: string): Promise<boolean> => {
-    if (isSupabaseConfigured() && supabase) {
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+  const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    if (!supabase) {
+      return { success: false, error: 'Supabase is not configured' };
+    }
 
-        if (error) {
-          console.error('Login error:', error.message);
-          return false;
-        }
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-        return !!data.user;
-      } catch (error) {
+      if (error) {
         console.error('Login error:', error);
-        return false;
+        return { success: false, error: error.message };
       }
-    } else {
-      // Fallback to mock authentication
-      if (email && password.length >= 6) {
-        const user: User = {
-          id: Date.now().toString(),
-          email,
-          name: email.split('@')[0],
-          showMetadata: true,
-          createdAt: new Date().toISOString(),
-        };
-        setUser(user);
-        saveUser(user);
-        return true;
-      }
-      return false;
+
+      return { success: !!data.user };
+    } catch (error: any) {
+      console.error('Login error:', error);
+      return { success: false, error: error.message || 'Login failed' };
     }
   }, []);
 
-  const register = useCallback(async (email: string, password: string, name: string): Promise<boolean> => {
-    if (isSupabaseConfigured() && supabase) {
-      try {
-        // Starting registration process
-        
-        // First, sign up the user with Supabase Auth
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              name,
-            },
+  const register = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
+    if (!supabase) {
+      return { success: false, error: 'Supabase is not configured' };
+    }
+
+    try {
+      // Sign up the user with Supabase Auth
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name,
           },
-        });
+        },
+      });
 
-        if (error) {
-          console.error('Supabase auth signup error:', error);
-          return false;
+      if (error) {
+        console.error('Signup error:', error);
+        return { success: false, error: error.message };
+      }
+
+      if (data.user) {
+        // Create the user record in our custom users table
+        const { error: userError } = await supabase
+          .from('users')
+          .insert({
+            id: data.user.id,
+            email: data.user.email || email,
+            name: name,
+            show_metadata: true,
+          });
+
+        if (userError) {
+          console.warn('User table insert error:', userError);
+          // Don't fail registration if user table insert fails - the trigger should handle it
         }
 
-        if (data.user) {
-          // Auth user created successfully
-          
-          // Create the user record in our custom users table
-          const { error: userError } = await supabase
-            .from('users')
-            .insert({
-              id: data.user.id,
-              email: data.user.email || email,
-              name: name,
-              show_metadata: true,
-            });
-
-          if (userError) {
-            console.error('User table insert error:', userError);
-            // If user table creation fails, we should still return true
-            // as the Supabase auth user was created successfully
-            // The trigger should handle this, but if it fails, user can still log in
-          } else {
-            // User record created successfully in users table
-          }
-
-          return true;
-        }
-
-        console.error('No user returned from signup');
-        return false;
-      } catch (error) {
-        console.error('Registration exception:', error);
-        return false;
+        return { success: true };
       }
-    } else {
-      // Fallback to mock registration
-      if (email && password.length >= 6 && name) {
-        const user: User = {
-          id: Date.now().toString(),
-          email,
-          name,
-          showMetadata: true,
-          createdAt: new Date().toISOString(),
-        };
-        setUser(user);
-        saveUser(user);
-        return true;
-      }
-      return false;
+
+      return { success: false, error: 'Registration failed - no user returned' };
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      return { success: false, error: error.message || 'Registration failed' };
     }
   }, []);
 
   const logout = useCallback(async () => {
-    if (isSupabaseConfigured() && supabase) {
+    if (!supabase) return;
+    
+    try {
       await supabase.auth.signOut();
-    } else {
-      // Fallback logout
       setUser(null);
-      removeUser();
+    } catch (error) {
+      console.error('Logout error:', error);
     }
   }, []);
 
   const updateMetadataPreference = useCallback(async (showMetadata: boolean): Promise<void> => {
-    if (!user) return;
+    if (!user || !supabase) return;
 
-    if (isSupabaseConfigured() && supabase) {
-      try {
-        const { error } = await supabase
-          .from('users')
-          .update({ show_metadata: showMetadata })
-          .eq('id', user.id);
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ show_metadata: showMetadata })
+        .eq('id', user.id);
 
-        if (error) {
-          console.error('Error updating metadata preference:', error);
-          throw error;
-        }
-
-        // Update local state
-        setUser({ ...user, showMetadata });
-      } catch (error) {
-        console.error('Failed to update metadata preference:', error);
+      if (error) {
+        console.error('Error updating metadata preference:', error);
         throw error;
       }
-    } else {
-      // Fallback to localStorage
-      const updatedUser = { ...user, showMetadata };
-      setUser(updatedUser);
-      saveUser(updatedUser);
+
+      // Update local state
+      setUser({ ...user, showMetadata });
+    } catch (error) {
+      console.error('Failed to update metadata preference:', error);
+      throw error;
     }
   }, [user]);
 

@@ -1,19 +1,33 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Database } from './database.types';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Create a fallback client that won't crash the app if env vars are missing
-let supabase: ReturnType<typeof createClient<Database>> | null = null;
-
-if (supabaseUrl && supabaseAnonKey) {
-  supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
-} else {
-  console.warn('Supabase environment variables are not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env.local file.');
+// Supabase is required - throw error if not configured
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error(
+    '⚠️ Supabase is not configured!\n' +
+    'Please create a .env.local file with:\n' +
+    'NEXT_PUBLIC_SUPABASE_URL=your_supabase_url\n' +
+    'NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key'
+  );
 }
 
-export { supabase };
+// Create the Supabase client with persistent sessions
+export const supabase: SupabaseClient<Database> | null = 
+  supabaseUrl && supabaseAnonKey 
+    ? createClient<Database>(supabaseUrl, supabaseAnonKey, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+          // Store session in localStorage with 30-day expiry
+          storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+          storageKey: 'vault-auth-token',
+        },
+      })
+    : null;
 
 // Helper function to check if Supabase is configured
 export const isSupabaseConfigured = (): boolean => {

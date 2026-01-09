@@ -23,9 +23,10 @@ interface TagDialogProps {
 
 export const TagDialog: React.FC<TagDialogProps> = ({ open, onOpenChange, tag }) => {
   const { createTag, updateTag } = useApp();
-  const [isLoading, setIsLoading] = useState(false);
   const [name, setName] = useState('');
   const [color, setColor] = useState(PREDEFINED_COLORS[0]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (open) {
@@ -36,35 +37,55 @@ export const TagDialog: React.FC<TagDialogProps> = ({ open, onOpenChange, tag })
         setName('');
         setColor(PREDEFINED_COLORS[0]);
       }
+      setError('');
+      setIsSubmitting(false);
     }
   }, [open, tag]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name) return;
+    if (!name.trim()) return;
 
-    setIsLoading(true);
+    setIsSubmitting(true);
+    setError('');
+    
     try {
       if (tag) {
-        await updateTag(tag.id, name, color);
+        await updateTag(tag.id, name.trim(), color);
       } else {
-        await createTag(name, color);
+        const newTag = await createTag(name.trim(), color);
+        console.log('TagDialog: Tag created successfully:', newTag);
       }
       onOpenChange(false);
-    } catch (error) {
-      console.error('Error saving tag:', error);
+    } catch (error: any) {
+      console.error('TagDialog: Error saving tag:', error);
+      const errorMessage = error?.message || 'Failed to save tag. Please try again.';
+      setError(errorMessage);
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
+  // Prevent dialog from closing during submission
+  const handleOpenChange = (newOpen: boolean) => {
+    if (isSubmitting && !newOpen) {
+      return;
+    }
+    onOpenChange(newOpen);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>{tag ? 'Edit Tag' : 'Create New Tag'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg">
+              {error}
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="name">Tag Name</Label>
             <Input
@@ -73,6 +94,7 @@ export const TagDialog: React.FC<TagDialogProps> = ({ open, onOpenChange, tag })
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Important"
               required
+              autoFocus
             />
           </div>
           <div className="space-y-2">
@@ -80,11 +102,11 @@ export const TagDialog: React.FC<TagDialogProps> = ({ open, onOpenChange, tag })
             <ColorPicker selectedColor={color} onColorChange={setColor} />
           </div>
           <div className="flex justify-end space-x-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading || !name}>
-              {isLoading ? (
+            <Button type="submit" disabled={isSubmitting || !name.trim()}>
+              {isSubmitting ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {tag ? 'Saving...' : 'Creating...'}</>
               ) : (
                 tag ? 'Save Changes' : 'Create Tag'

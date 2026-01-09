@@ -3,7 +3,7 @@
   "short_name": "Vault",
   "description": "Your secure digital vault for organizing links, notes, and important information",
   "start_url": "/",
-  "display": "standalone",  "background_color": "#000000",
+  "display": "browser",  "background_color": "#000000",
   "theme_color": "#000000",
   "orientation": "portrait-primary",
   "icons": [
