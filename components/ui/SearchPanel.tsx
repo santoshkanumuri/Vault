@@ -1,14 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, X, Sparkles, Link as LinkIcon, FileText, Loader2, Calendar, Folder, Hash, Filter } from 'lucide-react';
+import { Search, X, Sparkles, Link as LinkIcon, FileText, Loader2, ChevronDown } from 'lucide-react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from './input';
-import { Checkbox } from './checkbox';
 import { Button } from './button';
-import { Badge } from './badge';
 import { Link, Note } from '@/lib/types';
 import { smartSearch } from '@/lib/utils/smart-search';
 
@@ -34,13 +33,9 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [filters, setFilters] = useState<{
-    type?: 'link' | 'note';
-    folderId?: string;
-    tagId?: string;
-    dateRange?: 'today' | 'this-week' | 'this-month';
-    hasEmbedding?: boolean;
-  }>({});
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterType, setFilterType] = useState<'all' | 'link' | 'note'>('all');
+  const inputRef = useRef<HTMLInputElement>(null);
   
   // Search result cache
   const searchCacheRef = useRef<Map<string, { results: SearchResult[]; timestamp: number }>>(new Map());
@@ -50,6 +45,13 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
     setIsOpen(false);
     onClose?.();
   };
+
+  // Auto focus input on open
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [isOpen]);
 
   // Update query when initialQuery changes
   useEffect(() => {
@@ -70,71 +72,11 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
 
-  // Apply filters to results
+  // Apply type filter to results
   const applyFilters = useCallback((results: SearchResult[]): SearchResult[] => {
-    let filtered = results;
-    
-    // Type filter
-    if (filters.type) {
-      filtered = filtered.filter(r => r.type === filters.type);
-    }
-    
-    // Folder filter
-    if (filters.folderId) {
-      filtered = filtered.filter(r => r.item.folderId === filters.folderId);
-    }
-    
-    // Tag filter
-    if (filters.tagId) {
-      filtered = filtered.filter(r => {
-        if (r.type === 'link') {
-          return (r.item as Link).tagIds.includes(filters.tagId!);
-        } else {
-          return (r.item as Note).tagIds.includes(filters.tagId!);
-        }
-      });
-    }
-    
-    // Date range filter
-    if (filters.dateRange) {
-      const now = new Date();
-      let startDate: Date;
-      
-      switch (filters.dateRange) {
-        case 'today':
-          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          break;
-        case 'this-week':
-          startDate = new Date(now);
-          startDate.setDate(now.getDate() - 7);
-          break;
-        case 'this-month':
-          startDate = new Date(now);
-          startDate.setMonth(now.getMonth() - 1);
-          break;
-        default:
-          startDate = new Date(0);
-      }
-      
-      filtered = filtered.filter(r => {
-        const createdAt = new Date(r.item.createdAt);
-        return createdAt >= startDate && createdAt <= now;
-      });
-    }
-    
-    // Has embedding filter
-    if (filters.hasEmbedding === true) {
-      filtered = filtered.filter(r => {
-        if (r.type === 'link') {
-          return !!(r.item as Link).embedding && (r.item as Link).embedding!.length > 0;
-        } else {
-          return !!(r.item as Note).embedding && (r.item as Note).embedding!.length > 0;
-        }
-      });
-    }
-    
-    return filtered;
-  }, [filters]);
+    if (filterType === 'all') return results;
+    return results.filter(r => r.type === filterType);
+  }, [filterType]);
 
   // Perform search with caching
   const performSearch = useCallback(async (searchQuery: string, semantic: boolean) => {
@@ -144,7 +86,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
     }
 
     // Check cache
-    const cacheKey = `${searchQuery}-${semantic}-${JSON.stringify(filters)}`;
+    const cacheKey = `${searchQuery}-${semantic}-${filterType}`;
     const cached = searchCacheRef.current.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       setResults(cached.results);
@@ -227,7 +169,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
     } finally {
       setIsSearching(false);
     }
-  }, [links, notes, folders, tags, user, applyFilters, filters]);
+  }, [links, notes, folders, tags, user, applyFilters, filterType]);
 
   // Debounced search
   useEffect(() => {
@@ -240,7 +182,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
     }, 300);
 
     return () => clearTimeout(timeoutId);
-  }, [query, useSemanticSearch, filters, performSearch]);
+  }, [query, useSemanticSearch, filterType, performSearch]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -284,7 +226,9 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
     );
   };
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <>
@@ -294,217 +238,158 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={handleClose}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]"
           />
 
-          {/* Panel */}
+          {/* Panel - Centered Modal */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.2 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] sm:w-full max-w-2xl bg-popover border border-border rounded-lg shadow-2xl z-50 max-h-[80vh] flex flex-col mx-auto"
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="fixed inset-0 flex items-center justify-center p-4 z-[100] pointer-events-none"
           >
-            {/* Header */}
-            <div className="flex items-center gap-3 p-4 border-b border-border">
-              <Search className="h-5 w-5 text-muted-foreground" />
-              <Input
-                autoFocus
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setSelectedIndex(0);
-                }}
-                placeholder="Search everything..."
-                className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 h-auto text-base"
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleClose}
-                className="h-8 w-8 p-0"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-
-            {/* Filters */}
-            <div className="px-4 py-2 border-b border-border space-y-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Filter className="h-3 w-3" />
-                  Filters:
-                </span>
-                
-                {/* Type Filter */}
-                <Badge
-                  variant={filters.type === 'link' ? 'default' : 'outline'}
-                  className="cursor-pointer text-xs"
-                  onClick={() => setFilters(prev => ({ ...prev, type: prev.type === 'link' ? undefined : 'link' }))}
-                >
-                  <LinkIcon className="h-3 w-3 mr-1" />
-                  Links
-                </Badge>
-                <Badge
-                  variant={filters.type === 'note' ? 'default' : 'outline'}
-                  className="cursor-pointer text-xs"
-                  onClick={() => setFilters(prev => ({ ...prev, type: prev.type === 'note' ? undefined : 'note' }))}
-                >
-                  <FileText className="h-3 w-3 mr-1" />
-                  Notes
-                </Badge>
-                
-                {/* Date Range Filters */}
-                <Badge
-                  variant={filters.dateRange === 'today' ? 'default' : 'outline'}
-                  className="cursor-pointer text-xs"
-                  onClick={() => setFilters(prev => ({ ...prev, dateRange: prev.dateRange === 'today' ? undefined : 'today' }))}
-                >
-                  <Calendar className="h-3 w-3 mr-1" />
-                  Today
-                </Badge>
-                <Badge
-                  variant={filters.dateRange === 'this-week' ? 'default' : 'outline'}
-                  className="cursor-pointer text-xs"
-                  onClick={() => setFilters(prev => ({ ...prev, dateRange: prev.dateRange === 'this-week' ? undefined : 'this-week' }))}
-                >
-                  This Week
-                </Badge>
-                <Badge
-                  variant={filters.dateRange === 'this-month' ? 'default' : 'outline'}
-                  className="cursor-pointer text-xs"
-                  onClick={() => setFilters(prev => ({ ...prev, dateRange: prev.dateRange === 'this-month' ? undefined : 'this-month' }))}
-                >
-                  This Month
-                </Badge>
-                
-                {/* Folder Filter */}
-                {folders.slice(0, 3).map(folder => (
-                  <Badge
-                    key={folder.id}
-                    variant={filters.folderId === folder.id ? 'default' : 'outline'}
-                    className="cursor-pointer text-xs"
-                    onClick={() => setFilters(prev => ({ ...prev, folderId: prev.folderId === folder.id ? undefined : folder.id }))}
-                  >
-                    <Folder className="h-3 w-3 mr-1" />
-                    {folder.name}
-                  </Badge>
-                ))}
-                
-                {/* Has Embedding Filter */}
-                <Badge
-                  variant={filters.hasEmbedding === true ? 'default' : 'outline'}
-                  className="cursor-pointer text-xs"
-                  onClick={() => setFilters(prev => ({ ...prev, hasEmbedding: prev.hasEmbedding === true ? undefined : true }))}
-                >
-                  <Sparkles className="h-3 w-3 mr-1" />
-                  Indexed
-                </Badge>
-                
-                {/* Clear Filters */}
-                {(filters.type || filters.folderId || filters.tagId || filters.dateRange || filters.hasEmbedding) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setFilters({})}
-                    className="h-6 text-xs"
-                  >
-                    Clear
-                  </Button>
-                )}
-              </div>
-              
-              {/* Semantic Search Toggle */}
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="semantic-search"
-                  checked={useSemanticSearch}
-                  onCheckedChange={(checked) => setUseSemanticSearch(checked === true)}
+            <div className="w-full max-w-xl pointer-events-auto">
+            <div className="bg-background border border-border rounded-xl shadow-2xl overflow-hidden max-h-[75vh] flex flex-col">
+              {/* Search Input */}
+              <div className="flex items-center gap-2 p-3 sm:p-4 border-b border-border">
+                <Search className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                <Input
+                  ref={inputRef}
+                  autoFocus
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setSelectedIndex(0);
+                  }}
+                  placeholder="Search links and notes..."
+                  className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 h-auto text-base sm:text-lg px-0"
                 />
-                <label
-                  htmlFor="semantic-search"
-                  className="text-sm text-muted-foreground cursor-pointer flex items-center gap-2"
+                {isSearching && (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground flex-shrink-0" />
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleClose}
+                  className="h-8 w-8 flex-shrink-0 hover:bg-muted"
                 >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Semantic search (compare with chunked embeddings)
-                </label>
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
-            </div>
 
-            {/* Results */}
-            <div className="flex-1 overflow-y-auto p-2">
-              {isSearching ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  <span className="ml-2 text-sm text-muted-foreground">
-                    {useSemanticSearch ? 'Searching embeddings...' : 'Searching...'}
-                  </span>
-                </div>
-              ) : results.length === 0 && query.trim() ? (
-                <div className="text-center py-8 text-sm text-muted-foreground">
-                  No results found
-                </div>
-              ) : results.length === 0 ? (
-                <div className="text-center py-8 text-sm text-muted-foreground">
-                  Start typing to search...
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {results.map((result, index) => (
-                    <motion.button
-                      key={`${result.type}-${result.item.id}`}
-                      onClick={() => handleSelectResult(result)}
-                      onMouseEnter={() => setSelectedIndex(index)}
-                      className={`w-full text-left px-3 py-2 rounded-md transition-colors flex items-start gap-3 ${
-                        selectedIndex === index
-                          ? 'bg-accent text-accent-foreground'
-                          : 'hover:bg-muted/50'
+              {/* Quick Filters - Compact */}
+              <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-border bg-muted/30">
+                <div className="flex items-center gap-1 flex-1">
+                  {['all', 'link', 'note'].map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setFilterType(type as 'all' | 'link' | 'note')}
+                      className={`px-3 py-1 text-xs sm:text-sm rounded-full transition-colors ${
+                        filterType === type
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted hover:bg-muted/80 text-muted-foreground'
                       }`}
-                      initial={{ opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.02 }}
                     >
-                      {getResultIcon(result.type)}
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm truncate">
-                          {result.type === 'link' ? (result.item as Link).name : (result.item as Note).title}
-                        </div>
-                        {result.type === 'link' && (
-                          <div className="text-xs text-muted-foreground truncate">
-                            {(result.item as Link).url}
-                          </div>
-                        )}
-                        {result.chunkText && (
-                          <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                            {result.chunkText}
-                          </div>
-                        )}
-                        {(result.score || result.similarity) && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            {useSemanticSearch && result.similarity
-                              ? `Similarity: ${(result.similarity * 100).toFixed(1)}%`
-                              : `Relevance: ${((result.score || 0) * 100).toFixed(1)}%`}
-                          </div>
-                        )}
-                      </div>
-                    </motion.button>
+                      {type === 'all' ? 'All' : type === 'link' ? 'Links' : 'Notes'}
+                    </button>
                   ))}
                 </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="px-4 py-2 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-              <div className="flex items-center gap-4">
-                <span>↑↓ Navigate</span>
-                <span>Enter Select</span>
-                <span>Esc Close</span>
+                <button
+                  onClick={() => setUseSemanticSearch(!useSemanticSearch)}
+                  className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-full transition-colors ${
+                    useSemanticSearch
+                      ? 'bg-primary/20 text-primary'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Sparkles className="h-3 w-3" />
+                  <span className="hidden sm:inline">AI</span>
+                </button>
               </div>
-              <span>Ctrl+K to open</span>
+
+              {/* Results */}
+              <div className="flex-1 overflow-y-auto overscroll-contain">
+                {results.length === 0 && query.trim() && !isSearching ? (
+                  <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                    <Search className="h-10 w-10 text-muted-foreground/50 mb-3" />
+                    <p className="text-sm text-muted-foreground">No results found</p>
+                    <p className="text-xs text-muted-foreground/70 mt-1">Try different keywords</p>
+                  </div>
+                ) : results.length === 0 && !query.trim() ? (
+                  <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                    <Search className="h-10 w-10 text-muted-foreground/50 mb-3" />
+                    <p className="text-sm text-muted-foreground">Search your content</p>
+                    <p className="text-xs text-muted-foreground/70 mt-1">Type to find links and notes</p>
+                  </div>
+                ) : (
+                  <div className="py-2">
+                    {results.slice(0, 20).map((result, index) => (
+                      <motion.button
+                        key={`${result.type}-${result.item.id}`}
+                        onClick={() => handleSelectResult(result)}
+                        onMouseEnter={() => setSelectedIndex(index)}
+                        className={`w-full text-left px-3 sm:px-4 py-3 flex items-start gap-3 transition-colors ${
+                          selectedIndex === index
+                            ? 'bg-accent'
+                            : 'hover:bg-muted/50'
+                        }`}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: index * 0.02 }}
+                      >
+                        <div className={`mt-0.5 flex-shrink-0 ${result.type === 'link' ? 'text-blue-500' : 'text-green-500'}`}>
+                          {result.type === 'link' ? <LinkIcon className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">
+                            {result.type === 'link' ? (result.item as Link).name : (result.item as Note).title}
+                          </p>
+                          {result.type === 'link' && (
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">
+                              {(result.item as Link).url}
+                            </p>
+                          )}
+                          {result.chunkText && (
+                            <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                              {result.chunkText}
+                            </p>
+                          )}
+                        </div>
+                        {result.similarity && (
+                          <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                            {(result.similarity * 100).toFixed(0)}%
+                          </span>
+                        )}
+                      </motion.button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer - Hidden on small screens */}
+              <div className="hidden sm:flex items-center justify-between px-4 py-2 border-t border-border text-xs text-muted-foreground bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center gap-1">
+                    <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px]">↑↓</kbd>
+                    Navigate
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px]">↵</kbd>
+                    Select
+                  </span>
+                </div>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px]">Esc</kbd>
+                  Close
+                </span>
+              </div>
+            </div>
             </div>
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 };
