@@ -62,9 +62,6 @@ const withPWA = isDev
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   typescript: {
     // Skip type checking during build for faster compilation
     ignoreBuildErrors: false,
@@ -74,7 +71,7 @@ const nextConfig = {
   images: { unoptimized: true },
   // Optimize for performance
   reactStrictMode: true,
-  swcMinify: true,
+  // SWC minification is now default in Next.js 16, no need to specify
   // Faster compilation settings - only include compiler options in production
   // (Turbopack doesn't support compiler options in dev mode)
   ...(process.env.NODE_ENV === 'production' && {
@@ -101,11 +98,17 @@ const nextConfig = {
       '@radix-ui/react-tooltip',
     ],
   },
-  // Netlify specific configuration
-  output: isDev ? undefined : 'standalone', // Only use standalone in production
-  // Faster compilation in dev
-  webpack: (config, { dev }) => {
-    if (dev) {
+  // Netlify deployment - no need for standalone output
+  // Netlify handles serverless functions automatically
+  // Turbopack configuration (Next.js 16 default)
+  // Add empty config to silence the warning about webpack config
+  turbopack: {},
+  // Keep webpack config for compatibility, but only use it when explicitly needed
+  // For production builds, Turbopack will be used by default
+  webpack: (config, { dev, isServer }) => {
+    // Only apply webpack optimizations in development if needed
+    // In production, Turbopack handles this automatically
+    if (dev && !isServer) {
       config.optimization = {
         ...config.optimization,
         removeAvailableModules: false,
