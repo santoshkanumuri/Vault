@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
 
     if (!linkChunksError && linkChunks) {
       // Get unique link IDs
-      const linkIds = [...new Set(linkChunks.map((c: any) => c.link_id))];
+      const linkIds = Array.from(new Set(linkChunks.map((c: any) => c.link_id)));
       
       // Fetch full link data
       const { data: links, error: linksError } = await supabase

@@ -61,7 +61,7 @@ export interface Link {
   contentType?: string;
   author?: string;
   wordCount?: number;
-  embedding?: number[];
+  embedding?: number[] | string; // Can be array or string (pgvector format)
   chunks?: TextChunk[];
 }
 
@@ -75,7 +75,7 @@ export interface Note {
   userId: string;
   // New fields for semantic search
   chunks?: TextChunk[];
-  embedding?: number[];
+  embedding?: number[] | string; // Can be array or string (pgvector format)
 }
 
 export interface AuthState {

@@ -29,7 +29,7 @@ const calculateLinkSemanticScore = async (
   let maxScore = 0;
   
   // Check link-level embedding
-  if (link.embedding && link.embedding.length > 0) {
+  if (link.embedding && Array.isArray(link.embedding) && link.embedding.length > 0) {
     const similarity = cosineSimilarity(queryEmbedding, link.embedding);
     if (similarity > maxScore) {
       maxScore = similarity;
@@ -75,7 +75,7 @@ const calculateNoteSemanticScore = async (
   let maxScore = 0;
   
   // Check note-level embedding
-  if (note.embedding && note.embedding.length > 0) {
+  if (note.embedding && Array.isArray(note.embedding) && note.embedding.length > 0) {
     const similarity = cosineSimilarity(queryEmbedding, note.embedding);
     if (similarity > maxScore) {
       maxScore = similarity;

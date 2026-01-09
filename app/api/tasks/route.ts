@@ -392,9 +392,14 @@ async function processLinkEmbeddingsTask(task: any, baseUrl?: string) {
 }
 
 // Process note embeddings task
-async function processNoteEmbeddingsTask(task: any) {
+async function processNoteEmbeddingsTask(task: any, baseUrl?: string) {
   const supabase = getSupabaseAdmin();
   const { entity_id: noteId } = task;
+
+  // Use provided baseUrl or construct from env vars
+  const apiBaseUrl = baseUrl || 
+                     process.env.NEXT_PUBLIC_APP_URL || 
+                     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
 
   // Get note content
   const { data: note, error: noteError } = await supabase
@@ -414,7 +419,7 @@ async function processNoteEmbeddingsTask(task: any) {
 
   // Generate embeddings
   const embeddingResponse = await fetch(
-    `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/embeddings`,
+    `${apiBaseUrl}/api/embeddings`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

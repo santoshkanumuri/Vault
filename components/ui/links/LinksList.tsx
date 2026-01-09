@@ -311,7 +311,7 @@ export const LinksList: React.FC<LinksListProps> = ({ onEditLink, onAddLink }) =
       <BulkActions
         selectedIds={selectedIds}
         onDelete={async () => {
-          for (const id of selectedIds) {
+          for (const id of Array.from(selectedIds)) {
             await deleteLink(id);
           }
           setSelectedIds(new Set());

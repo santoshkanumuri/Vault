@@ -65,12 +65,14 @@ export const LinkCard: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit, 
 
   // Check if link has been successfully processed
   // Note: pgvector embedding may not be returned as a JS array, so we also check wordCount
+  const embeddingValue = link.embedding;
+  const hasEmbedding = embeddingValue && (
+    (typeof embeddingValue === 'string' && embeddingValue.length > 10) ||
+    (Array.isArray(embeddingValue) && embeddingValue.length > 0)
+  );
   const hasBeenProcessed = 
     // Check if embedding exists (could be array, string, or pgvector format)
-    (link.embedding && (
-      (Array.isArray(link.embedding) && link.embedding.length > 0) ||
-      (typeof link.embedding === 'string' && link.embedding.length > 10)
-    )) ||
+    hasEmbedding ||
     // Or if we have word count which indicates content was extracted
     (link.wordCount && link.wordCount > 0) ||
     // Or if we have full content
