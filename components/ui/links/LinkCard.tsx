@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -47,7 +47,65 @@ interface LinkCardProps {
   onSelect?: (selected: boolean) => void;
 }
 
-export const LinkCard: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit, index = 0, searchQuery = '', isSelected = false, onSelect }) => {
+// Custom comparison function for React.memo - only re-render when relevant props change
+const arePropsEqual = (
+  prevProps: LinkCardProps,
+  nextProps: LinkCardProps
+): boolean => {
+  // Check if link data changed
+  if (prevProps.link.id !== nextProps.link.id ||
+      prevProps.link.name !== nextProps.link.name ||
+      prevProps.link.url !== nextProps.link.url ||
+      prevProps.link.description !== nextProps.link.description ||
+      prevProps.link.favicon !== nextProps.link.favicon ||
+      prevProps.link.folderId !== nextProps.link.folderId ||
+      prevProps.link.wordCount !== nextProps.link.wordCount ||
+      prevProps.link.fullContent !== nextProps.link.fullContent) {
+    return false;
+  }
+  
+  // Check embedding changes (handle both array and string formats)
+  const prevEmbed = prevProps.link.embedding;
+  const nextEmbed = nextProps.link.embedding;
+  const prevHasEmbed = prevEmbed && ((Array.isArray(prevEmbed) && prevEmbed.length > 0) || (typeof prevEmbed === 'string' && prevEmbed.length > 10));
+  const nextHasEmbed = nextEmbed && ((Array.isArray(nextEmbed) && nextEmbed.length > 0) || (typeof nextEmbed === 'string' && nextEmbed.length > 10));
+  if (prevHasEmbed !== nextHasEmbed) return false;
+  
+  // Check tagIds array
+  if (prevProps.link.tagIds.length !== nextProps.link.tagIds.length ||
+      !prevProps.link.tagIds.every((id, i) => id === nextProps.link.tagIds[i])) {
+    return false;
+  }
+  
+  // Check folder
+  if (prevProps.folder.id !== nextProps.folder.id ||
+      prevProps.folder.name !== nextProps.folder.name ||
+      prevProps.folder.color !== nextProps.folder.color) {
+    return false;
+  }
+  
+  // Check tags array (by id and name)
+  if (prevProps.tags.length !== nextProps.tags.length) return false;
+  for (let i = 0; i < prevProps.tags.length; i++) {
+    if (prevProps.tags[i].id !== nextProps.tags[i].id ||
+        prevProps.tags[i].name !== nextProps.tags[i].name ||
+        prevProps.tags[i].color !== nextProps.tags[i].color) {
+      return false;
+    }
+  }
+  
+  // Check other props
+  if (prevProps.index !== nextProps.index ||
+      prevProps.searchQuery !== nextProps.searchQuery ||
+      prevProps.isSelected !== nextProps.isSelected) {
+    return false;
+  }
+  
+  // All checks passed - props are equal, skip re-render
+  return true;
+};
+
+const LinkCardComponent: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit, index = 0, searchQuery = '', isSelected = false, onSelect }) => {
   const { deleteLink, refreshLinkMetadata, linkStatuses } = useApp();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -488,3 +546,6 @@ export const LinkCard: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit, 
     </motion.div>
   );
 };
+
+// Export memoized component to prevent unnecessary re-renders
+export const LinkCard = memo(LinkCardComponent, arePropsEqual);

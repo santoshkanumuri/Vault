@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { LinkCard } from './links/LinkCard';
 import { NoteCard } from './notes/NoteCard';
 import { smartSearch } from '@/lib/utils/smart-search';
 import { useApp } from '@/contexts/AppContext';
-import { Link, Note } from '@/lib/types';
+import { Link, Note, Folder, Tag } from '@/lib/types';
 import { EmptyState } from './animations';
 import { Inbox, Search, FolderOpen, Plus, Sparkles } from 'lucide-react';
 import { Button } from './button';
@@ -70,6 +70,24 @@ export const CombinedList: React.FC<CombinedListProps> = ({
     // Sort by creation date (newest first)
     return combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [links, notes, folders, tags, currentFolder, searchQuery]);
+
+  // Create stable lookup maps for folders and tags to prevent new object references
+  const folderMap = useMemo(() => {
+    const map = new Map<string, Folder>();
+    folders.forEach(f => map.set(f.id, f));
+    return map;
+  }, [folders]);
+
+  const tagMap = useMemo(() => {
+    const map = new Map<string, Tag>();
+    tags.forEach(t => map.set(t.id, t));
+    return map;
+  }, [tags]);
+
+  // Memoized function to get tags for an item - returns stable reference if tags haven't changed
+  const getItemTags = useCallback((tagIds: string[]): Tag[] => {
+    return tagIds.map(id => tagMap.get(id)).filter((t): t is Tag => t !== undefined);
+  }, [tagMap]);
 
   if (filteredItems.length === 0) {
     if (searchQuery.trim()) {
@@ -179,12 +197,12 @@ export const CombinedList: React.FC<CombinedListProps> = ({
         
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredItems.map((result, index) => {
-            const folder = folders.find(f => f.id === result.item.folderId);
+            const folder = folderMap.get(result.item.folderId);
             if (!folder) return null;
 
             if (result.type === 'link') {
               const link = result.item as Link;
-              const linkTags = tags.filter(t => link.tagIds.includes(t.id));
+              const linkTags = getItemTags(link.tagIds);
               
               return (
                 <LinkCard
@@ -199,7 +217,7 @@ export const CombinedList: React.FC<CombinedListProps> = ({
               );
             } else {
               const note = result.item as Note;
-              const noteTags = tags.filter(t => note.tagIds.includes(t.id));
+              const noteTags = getItemTags(note.tagIds);
               
               return (
                 <NoteCard
@@ -266,12 +284,12 @@ export const CombinedList: React.FC<CombinedListProps> = ({
                   
                   if (!result) return null;
                   
-                  const folder = folders.find(f => f.id === result.item.folderId);
+                  const folder = folderMap.get(result.item.folderId);
                   if (!folder) return null;
 
                   if (result.type === 'link') {
                     const link = result.item as Link;
-                    const linkTags = tags.filter(t => link.tagIds.includes(t.id));
+                    const linkTags = getItemTags(link.tagIds);
                     
                     return (
                       <LinkCard
@@ -286,7 +304,7 @@ export const CombinedList: React.FC<CombinedListProps> = ({
                     );
                   } else {
                     const note = result.item as Note;
-                    const noteTags = tags.filter(t => note.tagIds.includes(t.id));
+                    const noteTags = getItemTags(note.tagIds);
                     
                     return (
                       <NoteCard

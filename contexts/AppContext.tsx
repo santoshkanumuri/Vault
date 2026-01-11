@@ -139,7 +139,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const linkIds = processingLinks.map(l => l.id);
         const statuses = await batchCheckLinkStatuses(linkIds, user.id);
-        setLinkStatuses(statuses);
+        
+        // Only update state if statuses actually changed to prevent unnecessary re-renders
+        setLinkStatuses(prev => {
+          // Compare with previous - if same content, return same reference
+          if (prev.size === statuses.size) {
+            let isSame = true;
+            const statusEntries = Array.from(statuses.entries());
+            for (let i = 0; i < statusEntries.length; i++) {
+              const [key, value] = statusEntries[i];
+              const prevValue = prev.get(key);
+              if (!prevValue || 
+                  prevValue.hasChunks !== value.hasChunks ||
+                  prevValue.isProcessing !== value.isProcessing ||
+                  prevValue.isPending !== value.isPending ||
+                  prevValue.hasFailed !== value.hasFailed) {
+                isSame = false;
+                break;
+              }
+            }
+            if (isSame) return prev; // Return same reference - no re-render
+          }
+          return statuses; // Statuses changed - trigger re-render
+        });
       } catch (error) {
         logger.warn('Failed to poll link statuses', { error });
       } finally {
@@ -426,7 +448,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw error;
     }
 
-    setIsLoading(true);
+    // Note: Removed global setIsLoading(true) to prevent UI freeze/skeleton flash
+    // The link is added optimistically to state immediately after DB creation
     console.log('createLink: Starting...', { name, url, folderId, tagCount: tagIds.length });
     
     try {
@@ -466,21 +489,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.log('createLink: Database call returned', { link });
       
       if (!link) {
-        setIsLoading(false);
         const error = new Error('Link creation failed in database - null returned');
         console.error('createLink: Failed - null link returned');
         throw error;
       }
       
       console.log('createLink: Success! Link created:', link.id);
+      // Optimistically add link to state immediately - no loading state change
       setLinks(prev => {
         console.log('createLink: Adding link to state, current count:', prev.length);
-        return [...prev, link];
+        return [link, ...prev]; // Add to beginning for immediate visibility
       });
-      
-      // Release UI immediately - don't wait for metadata
-      setIsLoading(false);
-      console.log('createLink: Loading state released');
+      console.log('createLink: Link added to state optimistically');
       
       // Fetch metadata in the background and update the link (non-blocking)
       // Use a shorter timeout to prevent hanging
@@ -557,7 +577,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return link;
     } catch (error) {
       console.error('Error creating link:', error);
-      setIsLoading(false);
+      // No loading state to reset - operation failed but UI stays responsive
       throw error;
     }
   };
@@ -680,7 +700,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateLink = async (id: string, name: string, url: string, description: string, folderId: string, tagIds: string[]) => {
-    setIsLoading(true);
+    // Note: Removed global setIsLoading(true) to prevent UI freeze
+    // Update is applied optimistically to state
     try {
       const existingLink = links.find(l => l.id === id);
       let metadata = existingLink?.metadata;
@@ -729,6 +750,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setTimeout(() => reject(new Error('Database operation timed out')), 10000);
       });
       
+      // Optimistically update state BEFORE database call for instant UI feedback
+      setLinks(prev => prev.map(l => l.id === id ? { ...l, ...linkData } : l));
+      console.log('updateLink: State updated optimistically');
+      
+      // Now persist to database (non-blocking from UI perspective)
       await Promise.race([
         db.updateLink(
           id, 
@@ -742,12 +768,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ),
         dbTimeout
       ]);
-
-      setLinks(prev => prev.map(l => l.id === id ? { ...l, ...linkData } : l));
-      console.log('updateLink: Success');
-      
-      // Release UI immediately
-      setIsLoading(false);
+      console.log('updateLink: Database updated');
       
       // If URL changed, queue re-processing tasks
       if (urlChanged) {
@@ -762,7 +783,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     } catch (error) {
       console.error('Error updating link:', error);
-      setIsLoading(false);
+      // Rollback optimistic update on error
+      if (user) {
+        const originalLinks = await db.getLinks(user.id, 1, 50);
+        setLinks(originalLinks.links);
+      }
       throw error;
     }
   };
@@ -919,7 +944,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const createNote = async (title: string, content: string, folderId: string, tagIds: string[]): Promise<Note> => {
     if (!user) throw new Error('User not authenticated');
 
-    setIsLoading(true);
+    // Note: Removed global setIsLoading(true) to prevent UI freeze/skeleton flash
     try {
       console.log('createNote: Creating note in Supabase...', { title, folderId });
       const createdNote = await db.createNote(
@@ -933,10 +958,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!createdNote) throw new Error('Note creation failed in database');
       
       console.log('createNote: Success, note:', createdNote.id);
-      setNotes(prev => [...prev, createdNote]);
-      
-      // Release UI immediately
-      setIsLoading(false);
+      // Optimistically add note to beginning of state for immediate visibility
+      setNotes(prev => [createdNote, ...prev]);
       
       // Queue embeddings task (server-side processing)
       if (content && content.length > 50) {
@@ -951,7 +974,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return createdNote;
     } catch (error) {
       console.error('Error creating note:', error);
-      setIsLoading(false);
+      // No loading state to reset - operation failed but UI stays responsive
       throw error;
     }
   };
@@ -996,7 +1019,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateNote = async (id: string, title: string, content: string, folderId: string, tagIds: string[]) => {
-    setIsLoading(true);
+    // Note: Removed global setIsLoading(true) to prevent UI freeze
     try {
       const existingNote = notes.find(n => n.id === id);
       const contentChanged = existingNote && (existingNote.title !== title || existingNote.content !== content);
@@ -1008,6 +1031,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         tagIds
       };
 
+      // Optimistically update state BEFORE database call for instant UI feedback
+      setNotes(prev => prev.map(n => n.id === id ? { ...n, ...noteData } : n));
+      console.log('updateNote: State updated optimistically');
+      
+      // Now persist to database
       console.log('updateNote: Updating note in Supabase...', { id, noteData });
       await db.updateNote(
         id, 
@@ -1016,12 +1044,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         noteData.folderId,
         noteData.tagIds
       );
-
-      setNotes(prev => prev.map(n => n.id === id ? { ...n, ...noteData } : n));
-      console.log('updateNote: Success');
-      
-      // Release UI immediately
-      setIsLoading(false);
+      console.log('updateNote: Database updated');
       
       // Re-generate embeddings in background if content changed
       if (contentChanged && content && content.length > 50) {
@@ -1034,7 +1057,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     } catch (error) {
       console.error('Error updating note:', error);
-      setIsLoading(false);
+      // Rollback optimistic update on error by reloading
+      if (user) loadData();
       throw error;
     }
   };

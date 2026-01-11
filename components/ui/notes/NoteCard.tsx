@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Card,
@@ -35,7 +35,59 @@ interface NoteCardProps {
   onSelect?: (selected: boolean) => void;
 }
 
-export const NoteCard: React.FC<NoteCardProps> = ({
+// Custom comparison function for React.memo - only re-render when relevant props change
+const arePropsEqual = (
+  prevProps: NoteCardProps,
+  nextProps: NoteCardProps
+): boolean => {
+  // Check if note data changed
+  if (prevProps.note.id !== nextProps.note.id ||
+      prevProps.note.title !== nextProps.note.title ||
+      prevProps.note.content !== nextProps.note.content ||
+      prevProps.note.folderId !== nextProps.note.folderId) {
+    return false;
+  }
+  
+  // Check embedding changes
+  const prevHasEmbed = prevProps.note.embedding && prevProps.note.embedding.length > 0;
+  const nextHasEmbed = nextProps.note.embedding && nextProps.note.embedding.length > 0;
+  if (prevHasEmbed !== nextHasEmbed) return false;
+  
+  // Check tagIds array
+  if (prevProps.note.tagIds.length !== nextProps.note.tagIds.length ||
+      !prevProps.note.tagIds.every((id, i) => id === nextProps.note.tagIds[i])) {
+    return false;
+  }
+  
+  // Check folder
+  if (prevProps.folder.id !== nextProps.folder.id ||
+      prevProps.folder.name !== nextProps.folder.name ||
+      prevProps.folder.color !== nextProps.folder.color) {
+    return false;
+  }
+  
+  // Check tags array (by id and name)
+  if (prevProps.tags.length !== nextProps.tags.length) return false;
+  for (let i = 0; i < prevProps.tags.length; i++) {
+    if (prevProps.tags[i].id !== nextProps.tags[i].id ||
+        prevProps.tags[i].name !== nextProps.tags[i].name ||
+        prevProps.tags[i].color !== nextProps.tags[i].color) {
+      return false;
+    }
+  }
+  
+  // Check other props
+  if (prevProps.index !== nextProps.index ||
+      prevProps.searchQuery !== nextProps.searchQuery ||
+      prevProps.isSelected !== nextProps.isSelected) {
+    return false;
+  }
+  
+  // All checks passed - props are equal, skip re-render
+  return true;
+};
+
+const NoteCardComponent: React.FC<NoteCardProps> = ({
   note,
   folder,
   tags,
@@ -311,3 +363,6 @@ export const NoteCard: React.FC<NoteCardProps> = ({
     </motion.div>
   );
 };
+
+// Export memoized component to prevent unnecessary re-renders
+export const NoteCard = memo(NoteCardComponent, arePropsEqual);
