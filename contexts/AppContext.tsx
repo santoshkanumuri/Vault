@@ -22,6 +22,7 @@ interface AppContextType {
   hasMoreLinks: boolean;
   hasMoreNotes: boolean;
   linkStatuses: Map<string, LinkStatus>;
+  recentlyCreatedIds: Set<string>;
   setCurrentFolder: (folderId: string | null) => void;
   setSearchQuery: (query: string) => void;
   toggleDarkMode: () => void;
@@ -68,6 +69,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [linkStatuses, setLinkStatuses] = useState<Map<string, LinkStatus>>(new Map());
   const [linksPage, setLinksPage] = useState(1);
   const [notesPage, setNotesPage] = useState(1);
+  const [recentlyCreatedIds, setRecentlyCreatedIds] = useState<Set<string>>(new Set());
   const [hasMoreLinks, setHasMoreLinks] = useState(true);
   const [hasMoreNotes, setHasMoreNotes] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -501,6 +503,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return [link, ...prev]; // Add to beginning for immediate visibility
       });
       console.log('createLink: Link added to state optimistically');
+      
+      // Mark as recently created for animation
+      setRecentlyCreatedIds(prev => new Set(prev).add(link.id));
+      // Clear the "new" flag after 2 seconds
+      setTimeout(() => {
+        setRecentlyCreatedIds(prev => {
+          const next = new Set(prev);
+          next.delete(link.id);
+          return next;
+        });
+      }, 2000);
       
       // Fetch metadata in the background and update the link (non-blocking)
       // Use a shorter timeout to prevent hanging
@@ -961,6 +974,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Optimistically add note to beginning of state for immediate visibility
       setNotes(prev => [createdNote, ...prev]);
       
+      // Mark as recently created for animation
+      setRecentlyCreatedIds(prev => new Set(prev).add(createdNote.id));
+      // Clear the "new" flag after 2 seconds
+      setTimeout(() => {
+        setRecentlyCreatedIds(prev => {
+          const next = new Set(prev);
+          next.delete(createdNote.id);
+          return next;
+        });
+      }, 2000);
+      
       // Queue embeddings task (server-side processing)
       if (content && content.length > 50) {
         queueNoteEmbeddingsTask(createdNote.id).catch((err) => {
@@ -1124,6 +1148,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       hasMoreLinks,
       hasMoreNotes,
       linkStatuses,
+      recentlyCreatedIds,
       setCurrentFolder,
       setSearchQuery,
       toggleDarkMode,

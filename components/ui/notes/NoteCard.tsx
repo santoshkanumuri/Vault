@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, memo } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, memo, useRef, useCallback, useEffect } from 'react';
+import { motion, useMotionValue, useTransform, useAnimation, PanInfo } from 'framer-motion';
 import {
   Card,
   CardContent,
@@ -18,10 +18,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, Edit, Trash2, StickyNote, Calendar, Brain, Sparkles, Loader2, AlertCircle, CheckSquare, Square } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2, StickyNote, Calendar, Brain, Sparkles, Loader2, AlertCircle, Undo2 } from 'lucide-react';
 import { Note, Folder, Tag } from '@/lib/types';
 import { useApp } from '@/contexts/AppContext';
 import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import { formatDistanceToNow } from 'date-fns';
 
 interface NoteCardProps {
@@ -31,8 +32,6 @@ interface NoteCardProps {
   onEdit: (note: Note) => void;
   index?: number;
   searchQuery?: string;
-  isSelected?: boolean;
-  onSelect?: (selected: boolean) => void;
 }
 
 // Custom comparison function for React.memo - only re-render when relevant props change
@@ -78,8 +77,7 @@ const arePropsEqual = (
   
   // Check other props
   if (prevProps.index !== nextProps.index ||
-      prevProps.searchQuery !== nextProps.searchQuery ||
-      prevProps.isSelected !== nextProps.isSelected) {
+      prevProps.searchQuery !== nextProps.searchQuery) {
     return false;
   }
   
@@ -94,10 +92,8 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
   onEdit,
   index = 0,
   searchQuery = '',
-  isSelected = false,
-  onSelect,
 }) => {
-  const { deleteNote, refreshNoteContent } = useApp();
+  const { deleteNote, refreshNoteContent, recentlyCreatedIds } = useApp();
   const { toast } = useToast();
   const [isHovered, setIsHovered] = useState(false);
   const [isUpdatingContent, setIsUpdatingContent] = useState(false);
@@ -116,15 +112,69 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
   };
   const status = getStatus();
 
-  const handleDelete = async () => {
-    if (window.confirm('Are you sure you want to delete this note?')) {
+  // Soft delete with undo functionality
+  const pendingDeleteRef = useRef<NodeJS.Timeout | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = useCallback(async () => {
+    // Cancel any pending delete
+    if (pendingDeleteRef.current) {
+      clearTimeout(pendingDeleteRef.current);
+    }
+
+    setIsDeleting(true);
+    const deletedNote = { ...note };
+
+    // Show undo toast
+    const { dismiss } = toast({
+      title: "Note deleted",
+      description: `"${note.title.slice(0, 25)}${note.title.length > 25 ? '...' : ''}" removed`,
+      duration: 5000,
+      action: (
+        <ToastAction
+          altText="Undo delete"
+          onClick={() => {
+            // Cancel the pending delete
+            if (pendingDeleteRef.current) {
+              clearTimeout(pendingDeleteRef.current);
+              pendingDeleteRef.current = null;
+            }
+            setIsDeleting(false);
+            dismiss();
+          }}
+          className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
+        >
+          <Undo2 className="h-3.5 w-3.5" />
+          Undo
+        </ToastAction>
+      ),
+    });
+
+    // Schedule actual deletion after toast duration
+    pendingDeleteRef.current = setTimeout(async () => {
       try {
-        await deleteNote(note.id);
+        await deleteNote(deletedNote.id);
       } catch (error) {
         console.error('Error deleting note:', error);
+        setIsDeleting(false);
+        toast({
+          title: "Failed to delete",
+          description: "Could not delete the note. Please try again.",
+          variant: "destructive",
+        });
       }
-    }
-  };
+      pendingDeleteRef.current = null;
+    }, 5000);
+  }, [note, deleteNote, toast]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pendingDeleteRef.current) {
+        clearTimeout(pendingDeleteRef.current);
+      }
+    };
+  }, []);
 
   const handleUpdateContent = async () => {
     setIsUpdatingContent(true);
@@ -160,13 +210,48 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
 
   // Only animate entrance for first 20 items to reduce lag
   const shouldAnimate = index < 20;
+  
+  // Check if this card was just created
+  const isNew = recentlyCreatedIds.has(note.id);
+
+  // Swipe to delete functionality
+  const x = useMotionValue(0);
+  const controls = useAnimation();
+  const deleteThreshold = -100;
+  
+  // Transform x position to background opacity and scale
+  const deleteOpacity = useTransform(x, [-150, -100, 0], [1, 0.8, 0]);
+  const deleteScale = useTransform(x, [-150, -100, 0], [1, 0.95, 0.8]);
+  
+  const handleDragEnd = async (_: any, info: PanInfo) => {
+    if (info.offset.x < deleteThreshold) {
+      // Animate off screen then delete
+      await controls.start({ x: -400, opacity: 0, transition: { duration: 0.2 } });
+      handleDelete();
+    } else {
+      // Snap back
+      controls.start({ x: 0, transition: { type: 'spring', stiffness: 500, damping: 30 } });
+    }
+  };
+
+  // Hide card during undo period
+  if (isDeleting) return null;
 
   return (
     <motion.div
-      initial={shouldAnimate ? { opacity: 0, y: 10 } : { opacity: 1, y: 0 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={isNew ? { opacity: 0, scale: 0.8, y: 20 } : shouldAnimate ? { opacity: 0, y: 10 } : { opacity: 1, y: 0 }}
+      animate={{ 
+        opacity: 1, 
+        scale: 1, 
+        y: 0,
+      }}
       exit={{ opacity: 0, scale: 0.95 }}
-      transition={shouldAnimate ? { 
+      transition={isNew ? { 
+        type: 'spring', 
+        stiffness: 500, 
+        damping: 25,
+        mass: 0.8,
+      } : shouldAnimate ? { 
         type: 'spring', 
         stiffness: 400, 
         damping: 30,
@@ -174,30 +259,49 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
       } : { duration: 0 }}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
+      className={`relative ${isNew ? 'z-10' : ''}`}
     >
-      <Card 
-        className="group overflow-hidden border-border/50 hover:border-primary/30 transition-all duration-200 hover:shadow-lg dark:hover:shadow-primary/5 cursor-pointer"
-        style={getCardGradient()}
-        onClick={() => onEdit(note)}
+      {/* Delete background revealed on swipe */}
+      <motion.div 
+        className="absolute inset-0 rounded-xl bg-gradient-to-r from-red-500 to-red-600 flex items-center justify-end pr-6 overflow-hidden"
+        style={{ opacity: deleteOpacity, scale: deleteScale }}
       >
+        <motion.div
+          className="flex items-center gap-2 text-white font-medium"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+        >
+          <Trash2 className="h-5 w-5" />
+          <span>Delete</span>
+        </motion.div>
+      </motion.div>
+      
+      {/* Swipeable card container */}
+      <motion.div
+        drag="x"
+        dragConstraints={{ left: -150, right: 0 }}
+        dragElastic={0.1}
+        onDragEnd={handleDragEnd}
+        style={{ x }}
+        animate={controls}
+        className="relative touch-pan-y"
+      >
+        {/* New card glow effect */}
+        {isNew && (
+          <motion.div
+            className="absolute inset-0 rounded-xl bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 blur-xl -z-10"
+            initial={{ opacity: 0.8, scale: 1.1 }}
+            animate={{ opacity: 0, scale: 1 }}
+            transition={{ duration: 2, ease: 'easeOut' }}
+          />
+        )}
+        <Card 
+          className={`group overflow-hidden border-border/50 hover:border-primary/30 transition-all duration-200 hover:shadow-lg dark:hover:shadow-primary/5 cursor-pointer ${isNew ? 'ring-2 ring-amber-500/50 shadow-lg shadow-amber-500/10' : ''}`}
+          style={getCardGradient()}
+          onClick={() => onEdit(note)}
+        >
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-2">
-            {/* Selection Checkbox */}
-            {onSelect && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect(!isSelected);
-                }}
-                className="mt-0.5 flex-shrink-0"
-              >
-                {isSelected ? (
-                  <CheckSquare className="h-5 w-5 text-primary" />
-                ) : (
-                  <Square className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
-                )}
-              </button>
-            )}
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <div
                 className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center relative transition-transform duration-200 hover:scale-110 hover:-rotate-3"
@@ -360,6 +464,7 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
           </div>
         </CardContent>
       </Card>
+      </motion.div>
     </motion.div>
   );
 };

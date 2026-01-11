@@ -7,6 +7,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -296,6 +297,9 @@ export const LinkDialog: React.FC<LinkDialogProps> = ({
             </div>
             {link ? 'Edit Link' : 'Add New Link'}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            {link ? 'Modify the details of your link' : 'Enter the details for your new link'}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-5">

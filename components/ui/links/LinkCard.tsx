@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, memo } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, memo, useRef, useCallback } from 'react';
+import { motion, useMotionValue, useTransform, useAnimation, PanInfo } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,8 +19,7 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
-  CheckSquare,
-  Square
+  Undo2
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -33,6 +32,7 @@ import { Link, Folder, Tag } from '@/lib/types';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import { formatDistanceToNow } from 'date-fns';
 import { LinkStatus } from '@/lib/utils/link-status';
 
@@ -43,8 +43,6 @@ interface LinkCardProps {
   onEdit: (link: Link) => void;
   index?: number;
   searchQuery?: string;
-  isSelected?: boolean;
-  onSelect?: (selected: boolean) => void;
 }
 
 // Custom comparison function for React.memo - only re-render when relevant props change
@@ -96,8 +94,7 @@ const arePropsEqual = (
   
   // Check other props
   if (prevProps.index !== nextProps.index ||
-      prevProps.searchQuery !== nextProps.searchQuery ||
-      prevProps.isSelected !== nextProps.isSelected) {
+      prevProps.searchQuery !== nextProps.searchQuery) {
     return false;
   }
   
@@ -105,8 +102,8 @@ const arePropsEqual = (
   return true;
 };
 
-const LinkCardComponent: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit, index = 0, searchQuery = '', isSelected = false, onSelect }) => {
-  const { deleteLink, refreshLinkMetadata, linkStatuses } = useApp();
+const LinkCardComponent: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit, index = 0, searchQuery = '' }) => {
+  const { deleteLink, refreshLinkMetadata, linkStatuses, recentlyCreatedIds } = useApp();
   const { user } = useAuth();
   const { toast } = useToast();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -160,11 +157,69 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit
   
   const status = getStatus();
 
-  const handleDelete = async () => {
-    if (confirm('Are you sure you want to delete this link?')) {
-      await deleteLink(link.id);
+  // Soft delete with undo functionality
+  const pendingDeleteRef = useRef<NodeJS.Timeout | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = useCallback(async () => {
+    // Cancel any pending delete
+    if (pendingDeleteRef.current) {
+      clearTimeout(pendingDeleteRef.current);
     }
-  };
+
+    setIsDeleting(true);
+    const deletedLink = { ...link };
+
+    // Show undo toast
+    const { dismiss } = toast({
+      title: "Link deleted",
+      description: `"${link.name.slice(0, 25)}${link.name.length > 25 ? '...' : ''}" removed`,
+      duration: 5000,
+      action: (
+        <ToastAction
+          altText="Undo delete"
+          onClick={() => {
+            // Cancel the pending delete
+            if (pendingDeleteRef.current) {
+              clearTimeout(pendingDeleteRef.current);
+              pendingDeleteRef.current = null;
+            }
+            setIsDeleting(false);
+            dismiss();
+          }}
+          className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
+        >
+          <Undo2 className="h-3.5 w-3.5" />
+          Undo
+        </ToastAction>
+      ),
+    });
+
+    // Schedule actual deletion after toast duration
+    pendingDeleteRef.current = setTimeout(async () => {
+      try {
+        await deleteLink(deletedLink.id);
+      } catch (error) {
+        console.error('Error deleting link:', error);
+        setIsDeleting(false);
+        toast({
+          title: "Failed to delete",
+          description: "Could not delete the link. Please try again.",
+          variant: "destructive",
+        });
+      }
+      pendingDeleteRef.current = null;
+    }, 5000);
+  }, [link, deleteLink, toast]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pendingDeleteRef.current) {
+        clearTimeout(pendingDeleteRef.current);
+      }
+    };
+  }, []);
 
   const handleRefreshMetadata = async () => {
     setIsRefreshing(true);
@@ -229,13 +284,48 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit
   
   // Only animate entrance for first 20 items to reduce lag
   const shouldAnimate = index < 20;
+  
+  // Check if this card was just created
+  const isNew = recentlyCreatedIds.has(link.id);
+
+  // Swipe to delete functionality
+  const x = useMotionValue(0);
+  const controls = useAnimation();
+  const deleteThreshold = -100;
+  
+  // Transform x position to background opacity and scale
+  const deleteOpacity = useTransform(x, [-150, -100, 0], [1, 0.8, 0]);
+  const deleteScale = useTransform(x, [-150, -100, 0], [1, 0.95, 0.8]);
+  
+  const handleDragEnd = async (_: any, info: PanInfo) => {
+    if (info.offset.x < deleteThreshold) {
+      // Animate off screen then delete
+      await controls.start({ x: -400, opacity: 0, transition: { duration: 0.2 } });
+      handleDelete();
+    } else {
+      // Snap back
+      controls.start({ x: 0, transition: { type: 'spring', stiffness: 500, damping: 30 } });
+    }
+  };
+
+  // Hide card during undo period
+  if (isDeleting) return null;
 
   return (
     <motion.div
-      initial={shouldAnimate ? { opacity: 0, y: 10 } : { opacity: 1, y: 0 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={isNew ? { opacity: 0, scale: 0.8, y: 20 } : shouldAnimate ? { opacity: 0, y: 10 } : { opacity: 1, y: 0 }}
+      animate={{ 
+        opacity: 1, 
+        scale: 1, 
+        y: 0,
+      }}
       exit={{ opacity: 0, scale: 0.95 }}
-      transition={shouldAnimate ? { 
+      transition={isNew ? { 
+        type: 'spring', 
+        stiffness: 500, 
+        damping: 25,
+        mass: 0.8,
+      } : shouldAnimate ? { 
         type: 'spring', 
         stiffness: 400, 
         damping: 30,
@@ -243,28 +333,47 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit
       } : { duration: 0 }}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
+      className={`relative ${isNew ? 'z-10' : ''}`}
     >
-      <Card className={`group overflow-hidden border-border/50 hover:border-primary/30 transition-all duration-200 hover:shadow-lg dark:hover:shadow-primary/5 ${isSelected ? 'ring-2 ring-primary' : ''}`}>
+      {/* Delete background revealed on swipe */}
+      <motion.div 
+        className="absolute inset-0 rounded-xl bg-gradient-to-r from-red-500 to-red-600 flex items-center justify-end pr-6 overflow-hidden"
+        style={{ opacity: deleteOpacity, scale: deleteScale }}
+      >
+        <motion.div
+          className="flex items-center gap-2 text-white font-medium"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+        >
+          <Trash2 className="h-5 w-5" />
+          <span>Delete</span>
+        </motion.div>
+      </motion.div>
+      
+      {/* Swipeable card container */}
+      <motion.div
+        drag="x"
+        dragConstraints={{ left: -150, right: 0 }}
+        dragElastic={0.1}
+        onDragEnd={handleDragEnd}
+        style={{ x }}
+        animate={controls}
+        className="relative touch-pan-y"
+      >
+        {/* New card glow effect */}
+        {isNew && (
+          <motion.div
+            className="absolute inset-0 rounded-xl bg-gradient-to-r from-primary/20 via-accent/20 to-primary/20 blur-xl -z-10"
+            initial={{ opacity: 0.8, scale: 1.1 }}
+            animate={{ opacity: 0, scale: 1 }}
+            transition={{ duration: 2, ease: 'easeOut' }}
+          />
+        )}
+        <Card className={`group overflow-hidden border-border/50 hover:border-primary/30 transition-all duration-200 hover:shadow-lg dark:hover:shadow-primary/5 ${isNew ? 'ring-2 ring-primary/50 shadow-lg shadow-primary/10' : ''}`}>
         <CardContent className="p-0">
           {/* Header Section */}
           <div className="p-4 pb-3">
             <div className="flex items-start justify-between gap-3">
-              {/* Selection Checkbox */}
-              {onSelect && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelect(!isSelected);
-                  }}
-                  className="mt-0.5 flex-shrink-0"
-                >
-                  {isSelected ? (
-                    <CheckSquare className="h-5 w-5 text-primary" />
-                  ) : (
-                    <Square className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
-                  )}
-                </button>
-              )}
               <div className="flex items-start gap-3 flex-1 min-w-0">
                 {/* Favicon with status indicator */}
                 <div 
@@ -543,6 +652,7 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit
           </div>
         </CardContent>
       </Card>
+      </motion.div>
     </motion.div>
   );
 };

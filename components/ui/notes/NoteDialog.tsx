@@ -7,6 +7,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -200,6 +201,9 @@ export const NoteDialog: React.FC<NoteDialogProps> = ({
             </div>
             {note ? 'Edit Note' : 'Create New Note'}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            {note ? 'Modify your note details' : 'Fill in the details for your new note'}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-5">

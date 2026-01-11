@@ -19,6 +19,7 @@ import { useApp } from '@/contexts/AppContext';
 import { Link, Note } from '@/lib/types';
 import { PWAInstallPrompt, IOSInstallPrompt } from '@/components/ui/pwa-install';
 import { LoadingScreen, SlideIn, CardSkeleton, PageTransition } from '@/components/ui/animations';
+import { KeyboardShortcutsModal } from '@/components/ui/KeyboardShortcutsModal';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 const springConfig = {
@@ -59,12 +60,14 @@ export default function Home() {
 
   const handleAddLink = () => {
     setEditingLink(null);
-    setIsLinkDialogOpen(true);
+    // Use timeout to avoid focus fighting with DropdownMenu
+    setTimeout(() => setIsLinkDialogOpen(true), 10);
   };
 
   const handleAddNote = () => {
     setEditingNote(null);
-    setIsNoteDialogOpen(true);
+    // Use timeout to avoid focus fighting with DropdownMenu
+    setTimeout(() => setIsNoteDialogOpen(true), 10);
   };
 
   // Keyboard shortcuts
@@ -331,6 +334,9 @@ export default function Home() {
       {/* PWA Install Prompts */}
       <PWAInstallPrompt />
       <IOSInstallPrompt />
+
+      {/* Keyboard Shortcuts Help */}
+      <KeyboardShortcutsModal />
 
     </div>
   );

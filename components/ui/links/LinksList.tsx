@@ -165,18 +165,6 @@ export const LinksList: React.FC<LinksListProps> = ({ onEditLink, onAddLink }) =
                       onEdit={onEditLink}
                       index={index}
                       searchQuery={searchQuery}
-                      isSelected={selectedIds.has(link.id)}
-                      onSelect={(selected) => {
-                        setSelectedIds(prev => {
-                          const next = new Set(prev);
-                          if (selected) {
-                            next.add(link.id);
-                          } else {
-                            next.delete(link.id);
-                          }
-                          return next;
-                        });
-                      }}
                     />
                   );
           })}
@@ -263,18 +251,6 @@ export const LinksList: React.FC<LinksListProps> = ({ onEditLink, onAddLink }) =
                       onEdit={onEditLink}
                       index={linkIndex}
                       searchQuery={searchQuery}
-                      isSelected={selectedIds.has(link.id)}
-                      onSelect={(selected) => {
-                        setSelectedIds(prev => {
-                          const next = new Set(prev);
-                          if (selected) {
-                            next.add(link.id);
-                          } else {
-                            next.delete(link.id);
-                          }
-                          return next;
-                        });
-                      }}
                     />
                   );
                 })}

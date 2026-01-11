@@ -6,6 +6,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -79,6 +80,9 @@ export const FolderDialog: React.FC<FolderDialogProps> = ({ open, onOpenChange, 
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>{folder ? 'Edit Folder' : 'Create New Folder'}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {folder ? 'Update folder details' : 'Enter a name and color for the new folder'}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (

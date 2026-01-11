@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence, useSpring, useTransform } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
@@ -44,6 +44,64 @@ const springConfig = {
   type: 'spring',
   stiffness: 400,
   damping: 30,
+};
+
+// Animated counter component for smooth number transitions
+const AnimatedCounter: React.FC<{ value: number; className?: string }> = ({ value, className }) => {
+  const prevValue = useRef(value);
+  const [displayValue, setDisplayValue] = useState(value);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const direction = useRef<'up' | 'down'>('up');
+
+  useEffect(() => {
+    if (prevValue.current !== value) {
+      direction.current = value > prevValue.current ? 'up' : 'down';
+      setIsAnimating(true);
+      prevValue.current = value;
+      
+      // Quick transition to new value
+      const timeout = setTimeout(() => {
+        setDisplayValue(value);
+        setIsAnimating(false);
+      }, 150);
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [value]);
+
+  return (
+    <span className={`relative inline-flex overflow-hidden ${className}`}>
+      <AnimatePresence mode="popLayout">
+        <motion.span
+          key={displayValue}
+          initial={{ 
+            y: direction.current === 'up' ? 10 : -10, 
+            opacity: 0,
+            scale: 0.8 
+          }}
+          animate={{ 
+            y: 0, 
+            opacity: 1,
+            scale: 1 
+          }}
+          exit={{ 
+            y: direction.current === 'up' ? -10 : 10, 
+            opacity: 0,
+            scale: 0.8,
+            position: 'absolute' 
+          }}
+          transition={{ 
+            type: 'spring', 
+            stiffness: 500, 
+            damping: 30,
+            mass: 0.5 
+          }}
+        >
+          {displayValue}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  );
 };
 
 export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
@@ -196,9 +254,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
             <span className="flex-1 text-left">All Items</span>
             <Badge 
               variant="secondary" 
-              className={`ml-auto font-medium ${currentFolder === null ? 'bg-primary/20 text-primary' : ''}`}
+              className={`ml-auto font-medium min-w-[1.5rem] justify-center ${currentFolder === null ? 'bg-primary/20 text-primary' : ''}`}
             >
-              {totalItems}
+              <AnimatedCounter value={totalItems} />
             </Badge>
           </Button>
         </motion.div>
@@ -255,9 +313,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
                     <span className="truncate flex-1 text-left text-sm">{folder.name}</span>
                     <Badge 
                       variant="secondary" 
-                      className={`ml-auto text-xs ${currentFolder === folder.id ? 'bg-primary/20 text-primary' : ''}`}
+                      className={`ml-auto text-xs min-w-[1.25rem] justify-center ${currentFolder === folder.id ? 'bg-primary/20 text-primary' : ''}`}
                     >
-                      {getFolderItemCount(folder.id)}
+                      <AnimatedCounter value={getFolderItemCount(folder.id)} />
                     </Badge>
                   </Button>
                   
@@ -340,8 +398,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
                   </div>
                   
                   <div className="flex items-center gap-1">
-                    <Badge variant="secondary" className="text-xs">
-                      {getTagItemCount(tag.id)}
+                    <Badge variant="secondary" className="text-xs min-w-[1.25rem] justify-center">
+                      <AnimatedCounter value={getTagItemCount(tag.id)} />
                     </Badge>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>

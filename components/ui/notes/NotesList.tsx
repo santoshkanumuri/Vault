@@ -165,18 +165,6 @@ export const NotesList: React.FC<NotesListProps> = ({ onEditNote, onAddNote }) =
                         onEdit={onEditNote}
                         index={index}
                         searchQuery={searchQuery}
-                        isSelected={selectedIds.has(note.id)}
-                        onSelect={(selected) => {
-                          setSelectedIds(prev => {
-                            const next = new Set(prev);
-                            if (selected) {
-                              next.add(note.id);
-                            } else {
-                              next.delete(note.id);
-                            }
-                            return next;
-                          });
-                        }}
                       />
                     );
           })}
@@ -263,18 +251,6 @@ export const NotesList: React.FC<NotesListProps> = ({ onEditNote, onAddNote }) =
                         onEdit={onEditNote}
                         index={noteIndex}
                         searchQuery={searchQuery}
-                        isSelected={selectedIds.has(note.id)}
-                        onSelect={(selected) => {
-                          setSelectedIds(prev => {
-                            const next = new Set(prev);
-                            if (selected) {
-                              next.add(note.id);
-                            } else {
-                              next.delete(note.id);
-                            }
-                            return next;
-                          });
-                        }}
                       />
                     );
                 })}
