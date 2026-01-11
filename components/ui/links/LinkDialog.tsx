@@ -283,6 +283,14 @@ export const LinkDialog: React.FC<LinkDialogProps> = ({
     // Reset submitting state when closing
     if (!newOpen) {
       setIsSubmitting(false);
+      
+      // Cleanup: restore scroll and pointer events when closing
+      setTimeout(() => {
+        document.documentElement.classList.remove('overflow-hidden');
+        document.documentElement.style.overflow = '';
+        document.body.style.overflow = '';
+        document.body.style.pointerEvents = '';
+      }, 0);
     }
     onOpenChange(newOpen);
   };

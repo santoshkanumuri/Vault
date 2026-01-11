@@ -53,7 +53,7 @@ const calculateLinkSemanticScore = async (
             score: similarity,
             field: 'chunk',
             chunkIndex: i,
-            highlightText: chunk.text.slice(0, 100) + '...',
+            highlightText: chunk.text,
           });
           if (similarity > maxScore) {
             maxScore = similarity;
@@ -99,7 +99,7 @@ const calculateNoteSemanticScore = async (
             score: similarity,
             field: 'chunk',
             chunkIndex: i,
-            highlightText: chunk.text.slice(0, 100) + '...',
+            highlightText: chunk.text,
           });
           if (similarity > maxScore) {
             maxScore = similarity;

@@ -6,7 +6,35 @@ import { X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
-const Dialog = DialogPrimitive.Root;
+// Wrapper component to handle overflow-hidden cleanup
+const Dialog = ({
+  children,
+  open,
+  onOpenChange,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Root>) => {
+  React.useEffect(() => {
+    // Ensure overflow-hidden is removed when dialog closes
+    if (!open) {
+      // Remove the overflow-hidden class from html element
+      const htmlElement = document.documentElement;
+      htmlElement.classList.remove('overflow-hidden');
+      // Also ensure body scroll is re-enabled
+      document.body.style.overflow = '';
+      document.body.style.pointerEvents = '';
+    }
+  }, [open]);
+
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={onOpenChange}
+      {...props}
+    >
+      {children}
+    </DialogPrimitive.Root>
+  );
+};
 
 const DialogTrigger = DialogPrimitive.Trigger;
 
@@ -17,16 +45,34 @@ const DialogClose = DialogPrimitive.Close;
 const DialogOverlay = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Overlay>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
->(({ className, ...props }, ref) => (
-  <DialogPrimitive.Overlay
-    ref={ref}
-    className={cn(
-      'fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
-      className
-    )}
-    {...props}
-  />
-));
+>(({ className, ...props }, ref) => {
+  React.useEffect(() => {
+    return () => {
+      // Cleanup: remove overflow-hidden when overlay unmounts
+      const htmlElement = document.documentElement;
+      // Only remove if no other dialogs are open
+      setTimeout(() => {
+        if (!document.querySelector('[role="dialog"]')) {
+          htmlElement.classList.remove('overflow-hidden');
+          htmlElement.style.overflow = '';
+          document.body.style.overflow = '';
+          document.body.style.pointerEvents = '';
+        }
+      }, 0);
+    };
+  }, []);
+
+  return (
+    <DialogPrimitive.Overlay
+      ref={ref}
+      className={cn(
+        'fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+        className
+      )}
+      {...props}
+    />
+  );
+});
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const DialogContent = React.forwardRef<

@@ -188,6 +188,17 @@ export const NoteDialog: React.FC<NoteDialogProps> = ({
     if (isLoading && !newOpen) {
       return;
     }
+    
+    // Cleanup: restore scroll and pointer events when closing
+    if (!newOpen) {
+      setTimeout(() => {
+        document.documentElement.classList.remove('overflow-hidden');
+        document.documentElement.style.overflow = '';
+        document.body.style.overflow = '';
+        document.body.style.pointerEvents = '';
+      }, 0);
+    }
+    
     onOpenChange(newOpen);
   };
 

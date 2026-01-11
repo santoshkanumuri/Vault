@@ -7,13 +7,34 @@ import { cn } from '@/lib/utils';
 
 const Drawer = ({
   shouldScaleBackground = true,
+  open,
+  onOpenChange,
+  children,
   ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Root>) => (
-  <DrawerPrimitive.Root
-    shouldScaleBackground={shouldScaleBackground}
-    {...props}
-  />
-);
+}: React.ComponentProps<typeof DrawerPrimitive.Root>) => {
+  React.useEffect(() => {
+    // Ensure overflow-hidden is removed when drawer closes
+    if (!open) {
+      // Remove the overflow-hidden class from html element
+      const htmlElement = document.documentElement;
+      htmlElement.classList.remove('overflow-hidden');
+      // Also ensure body scroll is re-enabled
+      document.body.style.overflow = '';
+      document.body.style.pointerEvents = '';
+    }
+  }, [open]);
+
+  return (
+    <DrawerPrimitive.Root
+      shouldScaleBackground={shouldScaleBackground}
+      open={open}
+      onOpenChange={onOpenChange}
+      {...props}
+    >
+      {children}
+    </DrawerPrimitive.Root>
+  );
+};
 Drawer.displayName = 'Drawer';
 
 const DrawerTrigger = DrawerPrimitive.Trigger;
@@ -25,13 +46,31 @@ const DrawerClose = DrawerPrimitive.Close;
 const DrawerOverlay = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Overlay>,
   React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Overlay>
->(({ className, ...props }, ref) => (
-  <DrawerPrimitive.Overlay
-    ref={ref}
-    className={cn('fixed inset-0 z-50 bg-black/80', className)}
-    {...props}
-  />
-));
+>(({ className, ...props }, ref) => {
+  React.useEffect(() => {
+    return () => {
+      // Cleanup: remove overflow-hidden when overlay unmounts
+      const htmlElement = document.documentElement;
+      // Only remove if no other drawers are open
+      setTimeout(() => {
+        if (!document.querySelector('[role="dialog"][aria-modal="true"]')) {
+          htmlElement.classList.remove('overflow-hidden');
+          htmlElement.style.overflow = '';
+          document.body.style.overflow = '';
+          document.body.style.pointerEvents = '';
+        }
+      }, 0);
+    };
+  }, []);
+
+  return (
+    <DrawerPrimitive.Overlay
+      ref={ref}
+      className={cn('fixed inset-0 z-50 bg-black/80', className)}
+      {...props}
+    />
+  );
+});
 DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
 
 const DrawerContent = React.forwardRef<

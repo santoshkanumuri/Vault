@@ -314,8 +314,7 @@ async function fetchTweetOEmbed(url: string): Promise<{
         .replace(/&mdash;.*$/, '') // Remove the author attribution
         .replace(/pic\.twitter\.com\/\w+/g, '') // Remove pic.twitter.com links
         .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 500);
+        .trim();
     }
     
     return {
@@ -691,7 +690,7 @@ export async function GET(request: NextRequest) {
       }
       
       // Basic content for backward compatibility
-      basicContent = fullContent?.fullText?.slice(0, 1000) || '';
+      basicContent = fullContent?.fullText || '';
     } catch (extractError: any) {
       logger.error('GET /api/metadata: Metadata extraction failed', { 
         url: normalizedUrl,

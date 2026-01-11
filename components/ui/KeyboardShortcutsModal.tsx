@@ -67,6 +67,19 @@ const convertKey = (key: string): string => {
 export function KeyboardShortcutsModal() {
   const [isOpen, setIsOpen] = useState(false);
 
+  const handleOpenChange = (newOpen: boolean) => {
+    // Cleanup: restore scroll and pointer events when closing
+    if (!newOpen) {
+      setTimeout(() => {
+        document.documentElement.classList.remove('overflow-hidden');
+        document.documentElement.style.overflow = '';
+        document.body.style.overflow = '';
+        document.body.style.pointerEvents = '';
+      }, 0);
+    }
+    setIsOpen(newOpen);
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger when typing in inputs
@@ -91,7 +104,7 @@ export function KeyboardShortcutsModal() {
   }, []);
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

@@ -6,7 +6,35 @@ import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '@/components/ui/button';
 
-const AlertDialog = AlertDialogPrimitive.Root;
+// Wrapper component to handle overflow-hidden cleanup
+const AlertDialog = ({
+  open,
+  onOpenChange,
+  children,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Root>) => {
+  React.useEffect(() => {
+    // Ensure overflow-hidden is removed when dialog closes
+    if (!open) {
+      // Remove the overflow-hidden class from html element
+      const htmlElement = document.documentElement;
+      htmlElement.classList.remove('overflow-hidden');
+      // Also ensure body scroll is re-enabled
+      document.body.style.overflow = '';
+      document.body.style.pointerEvents = '';
+    }
+  }, [open]);
+
+  return (
+    <AlertDialogPrimitive.Root
+      open={open}
+      onOpenChange={onOpenChange}
+      {...props}
+    >
+      {children}
+    </AlertDialogPrimitive.Root>
+  );
+};
 
 const AlertDialogTrigger = AlertDialogPrimitive.Trigger;
 
@@ -15,16 +43,34 @@ const AlertDialogPortal = AlertDialogPrimitive.Portal;
 const AlertDialogOverlay = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Overlay>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Overlay>
->(({ className, ...props }, ref) => (
-  <AlertDialogPrimitive.Overlay
-    className={cn(
-      'fixed inset-0 z-50 bg-black/80  data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
-      className
-    )}
-    {...props}
-    ref={ref}
-  />
-));
+>(({ className, ...props }, ref) => {
+  React.useEffect(() => {
+    return () => {
+      // Cleanup: remove overflow-hidden when overlay unmounts
+      const htmlElement = document.documentElement;
+      // Only remove if no other dialogs are open
+      setTimeout(() => {
+        if (!document.querySelector('[role="alertdialog"]')) {
+          htmlElement.classList.remove('overflow-hidden');
+          htmlElement.style.overflow = '';
+          document.body.style.overflow = '';
+          document.body.style.pointerEvents = '';
+        }
+      }, 0);
+    };
+  }, []);
+
+  return (
+    <AlertDialogPrimitive.Overlay
+      className={cn(
+        'fixed inset-0 z-50 bg-black/80  data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+        className
+      )}
+      {...props}
+      ref={ref}
+    />
+  );
+});
 AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 
 const AlertDialogContent = React.forwardRef<
