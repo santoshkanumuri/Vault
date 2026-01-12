@@ -24,7 +24,6 @@ type SortOption = 'newest' | 'oldest' | 'alphabetical';
 
 export const NotesList: React.FC<NotesListProps> = ({ onEditNote, onAddNote }) => {
   const { notes, folders, tags, currentFolder, searchQuery, links, isLoadingMore, hasMoreNotes, loadMoreNotes, deleteNote } = useApp();
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<SortOption>('newest');
 
   // Quick Look State
@@ -315,16 +314,7 @@ export const NotesList: React.FC<NotesListProps> = ({ onEditNote, onAddNote }) =
       )}
       
       {/* Bulk Actions */}
-      <BulkActions
-        selectedIds={selectedIds}
-        onDelete={async () => {
-          for (const id of Array.from(selectedIds)) {
-            await deleteNote(id);
-          }
-          setSelectedIds(new Set());
-        }}
-        onClearSelection={() => setSelectedIds(new Set())}
-      />
+      <BulkActions />
     </div>
   );
 };

@@ -92,10 +92,10 @@ export function PWAInstallPrompt() {
   }
 
   return (
-    <FadeInOut show={showPrompt}>
-      <div className="fixed bottom-4 left-4 right-4 z-[200] max-w-sm mx-auto pointer-events-auto">
+    <FadeInOut show={showPrompt} className="pointer-events-none">
+      <div className="fixed bottom-4 left-4 right-4 z-[200] max-w-sm mx-auto pointer-events-auto touch-auto">
         <AnimatedContainer animation="slideUp" className="w-full">
-          <Card className="bg-card/95 backdrop-blur-sm border-border/50 shadow-lg pointer-events-auto">
+          <Card className="bg-card/95 backdrop-blur-sm border-border/50 shadow-lg pointer-events-auto touch-auto">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
                 <div className="flex items-center space-x-2">
@@ -105,8 +105,12 @@ export function PWAInstallPrompt() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-6 w-6 -mr-2 -mt-1 pointer-events-auto"
+                  className="h-8 w-8 -mr-2 -mt-1 pointer-events-auto touch-auto"
                   onClick={handleDismiss}
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    handleDismiss();
+                  }}
                 >
                   <X className="h-4 w-4" />
                 </Button>
@@ -119,7 +123,11 @@ export function PWAInstallPrompt() {
                 <Button
                   size="sm"
                   onClick={handleInstall}
-                  className="flex-1 pointer-events-auto"
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    handleInstall();
+                  }}
+                  className="flex-1 pointer-events-auto touch-auto"
                 >
                   <Download className="h-4 w-4 mr-2" />
                   Install
@@ -128,7 +136,11 @@ export function PWAInstallPrompt() {
                   variant="outline"
                   size="sm"
                   onClick={handleDismiss}
-                  className="flex-1 pointer-events-auto"
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    handleDismiss();
+                  }}
+                  className="flex-1 pointer-events-auto touch-auto"
                 >
                   Later
                 </Button>
@@ -170,18 +182,22 @@ export function IOSInstallPrompt() {
   if (!isIOS || !showPrompt) return null;
 
   return (
-    <FadeInOut show={showPrompt}>
-      <div className="fixed bottom-4 left-4 right-4 z-[200] max-w-sm mx-auto pointer-events-auto">
+    <FadeInOut show={showPrompt} className="pointer-events-none">
+      <div className="fixed bottom-4 left-4 right-4 z-[200] max-w-sm mx-auto pointer-events-auto touch-auto">
         <AnimatedContainer animation="slideUp" className="w-full">
-          <Card className="bg-card/95 backdrop-blur-sm border-border/50 shadow-lg pointer-events-auto">
+          <Card className="bg-card/95 backdrop-blur-sm border-border/50 shadow-lg pointer-events-auto touch-auto">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
                 <CardTitle className="text-base">Add to Home Screen</CardTitle>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-6 w-6 -mr-2 -mt-1 pointer-events-auto"
+                  className="h-8 w-8 -mr-2 -mt-1 pointer-events-auto touch-auto"
                   onClick={handleDismiss}
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    handleDismiss();
+                  }}
                 >
                   <X className="h-4 w-4" />
                 </Button>

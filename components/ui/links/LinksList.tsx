@@ -24,7 +24,6 @@ type SortOption = 'newest' | 'oldest' | 'alphabetical';
 
 export const LinksList: React.FC<LinksListProps> = ({ onEditLink, onAddLink }) => {
   const { links, folders, tags, currentFolder, searchQuery, isLoadingMore, hasMoreLinks, loadMoreLinks, deleteLink } = useApp();
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<SortOption>('newest');
 
   // Quick Look State
@@ -315,16 +314,7 @@ export const LinksList: React.FC<LinksListProps> = ({ onEditLink, onAddLink }) =
       )}
       
       {/* Bulk Actions */}
-      <BulkActions
-        selectedIds={selectedIds}
-        onDelete={async () => {
-          for (const id of Array.from(selectedIds)) {
-            await deleteLink(id);
-          }
-          setSelectedIds(new Set());
-        }}
-        onClearSelection={() => setSelectedIds(new Set())}
-      />
+      <BulkActions />
     </div>
   );
 };

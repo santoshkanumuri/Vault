@@ -162,6 +162,7 @@ export function FadeInOut({ children, show, className }: FadeInOutProps) {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={fastSpring}
+          style={{ touchAction: 'auto' }}
         >
           {children}
         </motion.div>

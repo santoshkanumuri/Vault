@@ -9,7 +9,7 @@ import { smartSearch } from '@/lib/utils/smart-search';
 import { useApp } from '@/contexts/AppContext';
 import { Link, Note, Folder, Tag } from '@/lib/types';
 import { EmptyState } from './animations';
-import { Inbox, Search, FolderOpen, Plus, Sparkles, Pin, Tag } from 'lucide-react';
+import { Inbox, Search, FolderOpen, Plus, Sparkles, Pin, Tag as TagIcon } from 'lucide-react';
 import { Button } from './button';
 import { QuickLookModal } from './QuickLookModal';
 import { SerendipityWidget } from './SerendipityWidget';
@@ -207,7 +207,7 @@ export const CombinedList: React.FC<CombinedListProps> = ({
       const tag = tags.find(t => t.id === currentTag);
       return (
         <EmptyState
-          icon={<Tag className="w-10 h-10" />}
+          icon={<TagIcon className="w-10 h-10" />}
           title={`No items with "${tag?.name || 'tag'}"`}
           description="Add this tag to your links or notes to see them here."
         />
