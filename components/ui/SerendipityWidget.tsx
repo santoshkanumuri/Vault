@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Calendar, Shuffle, ArrowRight, RefreshCw, Star, Clock, TrendingUp, Zap, Eye, X } from 'lucide-react';
+import { Sparkles, Calendar, ArrowRight, RefreshCw, Star, Clock, Zap, Eye, X, ExternalLink } from 'lucide-react';
 import { Button } from './button';
 import { Card } from './card';
 import { Link, Note } from '@/lib/types';
-import { formatDistanceToNow, isSameDay, subYears, format } from 'date-fns';
-import { Badge } from './badge';
+import { formatDistanceToNow, isSameDay, subYears } from 'date-fns';
+import { trackLinkClick } from '@/lib/services/database';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface SerendipityWidgetProps {
   links: Link[];
@@ -35,11 +36,43 @@ export const SerendipityWidget: React.FC<SerendipityWidgetProps> = ({
   onQuickLook,
   className 
 }) => {
+  const { user } = useAuth();
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [isVisible, setIsVisible] = useState(true);
   const [key, setKey] = useState(0);
   const [isShuffling, setIsShuffling] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
+
+  // Handle opening a link
+  const handleOpenLink = useCallback((rec: Recommendation, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering the card click
+    
+    if (rec.type === 'link') {
+      const link = rec.item as Link;
+      // Track the click
+      if (user?.id) {
+        trackLinkClick(link.id, user.id, 'direct').catch(() => {});
+      }
+      // Open the link in a new tab
+      window.open(link.url, '_blank', 'noopener,noreferrer');
+    }
+  }, [user?.id]);
+
+  // Handle card click - for notes, open QuickLook; for links, open the URL
+  const handleCardClick = useCallback((rec: Recommendation) => {
+    if (rec.type === 'link') {
+      const link = rec.item as Link;
+      // Track the click
+      if (user?.id) {
+        trackLinkClick(link.id, user.id, 'direct').catch(() => {});
+      }
+      // Open the link in a new tab
+      window.open(link.url, '_blank', 'noopener,noreferrer');
+    } else {
+      // For notes, open QuickLook
+      onQuickLook(rec.item, rec.type);
+    }
+  }, [user?.id, onQuickLook]);
 
   const generateRecommendations = () => {
     if (links.length === 0 && notes.length === 0) return [];
@@ -160,190 +193,148 @@ export const SerendipityWidget: React.FC<SerendipityWidgetProps> = ({
   return (
     <motion.div 
       className={`mb-8 ${className}`}
-      initial={{ opacity: 0, y: -20 }}
+      initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      transition={{ duration: 0.5, ease: 'easeOut' }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.4, ease: 'easeOut' }}
     >
-      <div className="flex items-center justify-between mb-4 px-1">
-        <motion.div 
-          className="flex items-center gap-3"
-          initial={{ x: -20, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ delay: 0.2 }}
-        >
-          <motion.div 
-            className="p-2 bg-gradient-to-br from-primary/20 to-primary/10 rounded-xl text-primary shadow-lg shadow-primary/20"
-            animate={{ 
-              rotate: [0, 5, -5, 0],
-              scale: [1, 1.05, 1]
-            }}
-            transition={{ 
-              duration: 3,
-              repeat: Infinity,
-              repeatDelay: 5
-            }}
-          >
+      {/* Header Section */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-primary/10 rounded-xl text-primary">
             <Sparkles className="w-5 h-5" />
-          </motion.div>
+          </div>
           <div>
-            <h2 className="text-xl font-bold bg-gradient-to-r from-primary via-violet-500 to-primary bg-clip-text text-transparent">
+            <h2 className="text-lg font-semibold text-foreground">
               Rediscover
             </h2>
-            <p className="text-xs text-muted-foreground">Your personal time machine</p>
+            <p className="text-xs text-muted-foreground">Revisit your saved treasures</p>
           </div>
-        </motion.div>
-        <motion.div 
-          className="flex items-center gap-2"
-          initial={{ x: 20, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ delay: 0.2 }}
-        >
+        </div>
+        
+        <div className="flex items-center gap-1">
           <Button 
             variant="ghost" 
             size="sm" 
-            className="h-9 px-3 hover:bg-muted/80 hover:scale-105 transition-all gap-2 group"
+            className="h-8 px-3 text-muted-foreground hover:text-foreground hover:bg-muted/60 gap-1.5"
             onClick={handleShuffle}
             disabled={isShuffling}
-            title="Shuffle suggestions"
           >
             <motion.div
               animate={{ rotate: isShuffling ? 360 : 0 }}
-              transition={{ duration: 0.5, ease: 'easeInOut' }}
+              transition={{ duration: 0.4 }}
             >
-              <RefreshCw className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+              <RefreshCw className="w-3.5 h-3.5" />
             </motion.div>
             <span className="text-xs font-medium hidden sm:inline">Shuffle</span>
           </Button>
           <Button 
             variant="ghost" 
-            size="sm" 
-            className="h-9 w-9 p-0 hover:bg-destructive/10 hover:text-destructive transition-all"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted/60"
             onClick={handleDismiss}
-            title="Dismiss"
           >
             <X className="w-4 h-4" />
           </Button>
-        </motion.div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 px-1">
+      {/* Cards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <AnimatePresence mode="popLayout">
           {recommendations.map((rec, i) => {
             const isHovered = hoveredCard === rec.id;
+            const isLink = rec.type === 'link';
+            const item = rec.item;
+            const title = isLink ? (item as Link).name : (item as Note).title;
+            const url = isLink ? (item as Link).url : null;
+            
+            // Get clean hostname
+            let hostname = '';
+            if (url) {
+              try {
+                hostname = new URL(url).hostname.replace('www.', '');
+              } catch {
+                hostname = url;
+              }
+            }
             
             return (
               <motion.div
                 key={`${rec.id}-${key}`}
-                initial={{ opacity: 0, y: 30, scale: 0.9, rotateX: -15 }}
-                animate={{ opacity: 1, y: 0, scale: 1, rotateX: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: -20 }}
-                transition={{ 
-                  delay: i * 0.15, 
-                  type: 'spring', 
-                  stiffness: 300, 
-                  damping: 25,
-                  opacity: { duration: 0.3 }
-                }}
-                whileHover={{ 
-                  y: -8,
-                  scale: 1.02,
-                  transition: { type: 'spring', stiffness: 400, damping: 20 }
-                }}
-                onClick={() => onQuickLook(rec.item, rec.type)}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ delay: i * 0.1, duration: 0.3 }}
+                onClick={() => handleCardClick(rec)}
                 onHoverStart={() => setHoveredCard(rec.id)}
                 onHoverEnd={() => setHoveredCard(null)}
-                className="group cursor-pointer perspective-1000"
-                style={{ transformStyle: 'preserve-3d' }}
+                className="group cursor-pointer"
               >
-                <Card className="relative h-40 overflow-hidden border border-border/50 shadow-lg hover:shadow-2xl hover:shadow-primary/10 transition-all duration-500 dark:bg-gradient-to-br dark:from-muted/40 dark:to-muted/20 bg-gradient-to-br from-white to-gray-50/50 backdrop-blur-sm">
-                  {/* Animated Gradient Background */}
-                  <motion.div 
-                    className={`absolute inset-0 opacity-0 group-hover:opacity-20 transition-opacity duration-500 bg-gradient-to-br ${rec.color}`}
-                    animate={isHovered ? {
-                      scale: [1, 1.2, 1],
-                      rotate: [0, 5, 0]
-                    } : {}}
-                    transition={{ duration: 2, repeat: Infinity }}
-                  />
+                <Card className="relative overflow-hidden border border-border/60 bg-card hover:border-primary/30 hover:shadow-lg transition-all duration-300">
+                  {/* Subtle gradient accent */}
+                  <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${rec.color} opacity-80`} />
                   
-                  {/* Shimmer Effect */}
-                  <motion.div
-                    className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
-                    initial={{ x: '-100%' }}
-                    animate={isHovered ? { x: '200%' } : { x: '-100%' }}
-                    transition={{ duration: 1.5, ease: 'easeInOut' }}
-                  />
-                  
-                  {/* Floating Orbs */}
-                  <div className="absolute -right-6 -top-6 w-32 h-32 rounded-full bg-gradient-to-br from-primary/20 to-violet-500/20 blur-3xl group-hover:scale-150 group-hover:opacity-40 transition-all duration-700" />
-                  <div className="absolute -left-6 -bottom-6 w-28 h-28 rounded-full bg-gradient-to-tr from-blue-500/15 to-cyan-500/15 blur-2xl group-hover:scale-150 group-hover:opacity-40 transition-all duration-700" />
-                  
-                  <div className="relative h-full p-5 flex flex-col justify-between z-10">
-                    {/* Header */}
-                    <div className="flex justify-between items-start">
+                  <div className="p-4 space-y-3">
+                    {/* Top row: Badge + Actions */}
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <motion.div
-                          className={`p-1.5 rounded-lg bg-gradient-to-br ${rec.color} text-white shadow-md`}
-                          whileHover={{ rotate: [0, -10, 10, 0], scale: 1.1 }}
-                          transition={{ duration: 0.5 }}
-                        >
+                        <div className={`p-1.5 rounded-md bg-gradient-to-br ${rec.color} text-white`}>
                           {rec.icon}
-                        </motion.div>
-                        <Badge 
-                          variant="secondary" 
-                          className="bg-background/90 backdrop-blur-md border-none shadow-sm text-xs font-semibold tracking-wide"
-                        >
+                        </div>
+                        <span className="text-xs font-medium text-muted-foreground">
                           {rec.label}
-                        </Badge>
+                        </span>
                       </div>
                       
-                      <motion.div
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: isHovered ? 1 : 0, x: isHovered ? 0 : -10 }}
-                        transition={{ duration: 0.2 }}
-                        className={`p-1.5 rounded-full bg-primary/10 backdrop-blur-sm`}
-                      >
-                        <Eye className="w-3.5 h-3.5 text-primary" />
-                      </motion.div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {isLink && (
+                          <button
+                            onClick={(e) => handleOpenLink(rec, e)}
+                            className="p-1.5 rounded-md hover:bg-muted transition-colors"
+                            title="Open link"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onQuickLook(rec.item, rec.type);
+                          }}
+                          className="p-1.5 rounded-md hover:bg-muted transition-colors"
+                          title="Quick look"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                        </button>
+                      </div>
                     </div>
 
-                    {/* Content */}
-                    <div className="space-y-2">
-                      <motion.h3 
-                        className="font-bold text-base line-clamp-2 leading-snug text-foreground group-hover:text-primary transition-colors duration-300"
-                        animate={isHovered ? { x: [0, 2, 0] } : {}}
-                        transition={{ duration: 0.3 }}
-                      >
-                        {rec.type === 'link' ? (rec.item as Link).name : (rec.item as Note).title}
-                      </motion.h3>
+                    {/* Title */}
+                    <h3 className="font-semibold text-sm line-clamp-2 leading-snug text-foreground group-hover:text-primary transition-colors">
+                      {title}
+                    </h3>
+                    
+                    {/* URL for links */}
+                    {isLink && hostname && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        {hostname}
+                      </p>
+                    )}
+
+                    {/* Footer: Date + CTA */}
+                    <div className="flex items-center justify-between pt-1 border-t border-border/40">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <Calendar className="w-3 h-3" />
+                        {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
+                      </span>
                       
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
-                          <Calendar className="w-3.5 h-3.5" />
-                          <span>{formatDistanceToNow(new Date(rec.item.createdAt), { addSuffix: true })}</span>
-                        </p>
-                        
-                        <motion.div
-                          className="text-xs text-primary/70 font-medium flex items-center gap-1"
-                          animate={isHovered ? { x: [0, 3, 0] } : {}}
-                          transition={{ duration: 0.5, repeat: Infinity }}
-                        >
-                          <span>{rec.description}</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </motion.div>
-                      </div>
+                      <span className="text-xs text-primary font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {isLink ? 'Open' : 'View'}
+                        <ArrowRight className="w-3 h-3" />
+                      </span>
                     </div>
                   </div>
-
-                  {/* Bottom Accent Line */}
-                  <motion.div
-                    className={`absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r ${rec.color}`}
-                    initial={{ scaleX: 0 }}
-                    animate={{ scaleX: isHovered ? 1 : 0 }}
-                    transition={{ duration: 0.3 }}
-                    style={{ transformOrigin: 'left' }}
-                  />
                 </Card>
               </motion.div>
             );

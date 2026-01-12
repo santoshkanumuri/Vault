@@ -1,227 +1,355 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { X, Download, Smartphone } from 'lucide-react';
-import { AnimatedContainer, FadeInOut } from '@/components/ui/animations';
-import { useHapticFeedback } from '@/lib/utils/haptic';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { Download, X, Share, Plus, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
-export function PWAInstallPrompt() {
+type InstallState = 'idle' | 'prompting' | 'success' | 'error';
+
+// Check if device prefers reduced motion
+function usePrefersReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    try {
+      const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+      setPrefersReducedMotion(mediaQuery.matches);
+      
+      const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+      mediaQuery.addEventListener('change', handler);
+      return () => mediaQuery.removeEventListener('change', handler);
+    } catch {
+      // Silently fail
+    }
+  }, []);
+  
+  return prefersReducedMotion;
+}
+
+// Mobile-optimized PWA Install Banner
+export const PWAInstallPrompt = memo(function PWAInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [showPrompt, setShowPrompt] = useState(false);
+  const [showBanner, setShowBanner] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
-  const haptic = useHapticFeedback();
+  const [installState, setInstallState] = useState<InstallState>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const bannerRef = useRef<HTMLDivElement>(null);
+  const showTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
-    // Check if app is already installed
-    const checkInstalled = () => {
+    // Early exit for SSR
+    if (typeof window === 'undefined') return;
+
+    // Check if already installed - use try/catch for safety
+    try {
       const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
       const isNavigatorStandalone = (window.navigator as any).standalone === true;
-      setIsInstalled(isStandalone || isNavigatorStandalone);
-    };
+      
+      if (isStandalone || isNavigatorStandalone) {
+        setIsInstalled(true);
+        return;
+      }
+    } catch {
+      // Silently fail if matchMedia not supported
+    }
 
-    checkInstalled();
+    // Check if dismissed recently (7 days)
+    try {
+      const dismissed = localStorage.getItem('pwa-dismissed');
+      if (dismissed && Date.now() - parseInt(dismissed) < 7 * 24 * 60 * 60 * 1000) {
+        return;
+      }
+    } catch {
+      // localStorage might be blocked
+    }
 
-    // Listen for beforeinstallprompt event
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
-      
-      // Show prompt after a delay if not already installed
-      if (!isInstalled) {
-        setTimeout(() => setShowPrompt(true), 3000);
-      }
+      // Delay showing banner to not interrupt initial load
+      showTimeoutRef.current = setTimeout(() => {
+        // Use requestAnimationFrame for smoother rendering
+        requestAnimationFrame(() => setShowBanner(true));
+      }, 3000);
     };
 
-    // Listen for app installed event
     const handleAppInstalled = () => {
-      setIsInstalled(true);
-      setShowPrompt(false);
-      setDeferredPrompt(null);
+      setInstallState('success');
+      setTimeout(() => {
+        setIsInstalled(true);
+        setShowBanner(false);
+        setDeferredPrompt(null);
+      }, 1500);
     };
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt, { passive: true });
+    window.addEventListener('appinstalled', handleAppInstalled, { passive: true });
 
     return () => {
+      if (showTimeoutRef.current) clearTimeout(showTimeoutRef.current);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
-  }, [isInstalled]);
+  }, []);
 
-  const handleInstall = async () => {
-    if (!deferredPrompt) return;
-
-    haptic.medium();
+  const handleInstall = useCallback(async () => {
+    if (!deferredPrompt || installState === 'prompting') return;
+    
+    setInstallState('prompting');
+    setErrorMessage(null);
     
     try {
       await deferredPrompt.prompt();
-      const choiceResult = await deferredPrompt.userChoice;
+      const { outcome } = await deferredPrompt.userChoice;
       
-      if (choiceResult.outcome === 'accepted') {
-        haptic.success();
+      if (outcome === 'accepted') {
+        setInstallState('success');
+        // Let success state show briefly before hiding
+        setTimeout(() => setShowBanner(false), 1500);
+      } else {
+        setInstallState('idle');
       }
-      
       setDeferredPrompt(null);
-      setShowPrompt(false);
-    } catch (error) {
-      console.error('Error installing PWA:', error);
-      haptic.error();
+    } catch (err) {
+      setInstallState('error');
+      setErrorMessage(err instanceof Error ? err.message : 'Installation failed');
+      // Auto-reset error state
+      setTimeout(() => {
+        setInstallState('idle');
+        setErrorMessage(null);
+      }, 3000);
     }
-  };
+  }, [deferredPrompt, installState]);
 
-  const handleDismiss = () => {
-    haptic.light();
-    setShowPrompt(false);
-    // Don't show again for this session
-    localStorage.setItem('pwa-prompt-dismissed', Date.now().toString());
-  };
-
-  // Don't show if already installed or recently dismissed
-  if (isInstalled || !deferredPrompt) return null;
-
-  const recentlyDismissed = localStorage.getItem('pwa-prompt-dismissed');
-  if (recentlyDismissed && Date.now() - parseInt(recentlyDismissed) < 24 * 60 * 60 * 1000) {
-    return null;
-  }
-
-  return (
-    <FadeInOut show={showPrompt} className="pointer-events-none">
-      <div className="fixed bottom-4 left-4 right-4 z-[200] max-w-sm mx-auto pointer-events-auto touch-auto">
-        <AnimatedContainer animation="slideUp" className="w-full">
-          <Card className="bg-card/95 backdrop-blur-sm border-border/50 shadow-lg pointer-events-auto touch-auto">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center space-x-2">
-                  <Smartphone className="h-5 w-5 text-primary" />
-                  <CardTitle className="text-base">Install App</CardTitle>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 -mr-2 -mt-1 pointer-events-auto touch-auto"
-                  onClick={handleDismiss}
-                  onTouchEnd={(e) => {
-                    e.preventDefault();
-                    handleDismiss();
-                  }}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>              <CardDescription className="text-sm">
-                Install Vault for a better experience with offline access and quick launch from your home screen.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="flex space-x-2">
-                <Button
-                  size="sm"
-                  onClick={handleInstall}
-                  onTouchEnd={(e) => {
-                    e.preventDefault();
-                    handleInstall();
-                  }}
-                  className="flex-1 pointer-events-auto touch-auto"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Install
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDismiss}
-                  onTouchEnd={(e) => {
-                    e.preventDefault();
-                    handleDismiss();
-                  }}
-                  className="flex-1 pointer-events-auto touch-auto"
-                >
-                  Later
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </AnimatedContainer>
-      </div>
-    </FadeInOut>
-  );
-}
-
-// iOS Safari specific install instructions
-export function IOSInstallPrompt() {
-  const [showPrompt, setShowPrompt] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
-
-  useEffect(() => {
-    // Detect iOS
-    const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-    
-    setIsIOS(iOS);
-    
-    if (iOS && !isStandalone) {
-      // Check if user hasn't dismissed this recently
-      const dismissed = localStorage.getItem('ios-install-dismissed');
-      if (!dismissed || Date.now() - parseInt(dismissed) > 7 * 24 * 60 * 60 * 1000) {
-        setTimeout(() => setShowPrompt(true), 5000);
-      }
+  const handleDismiss = useCallback(() => {
+    setShowBanner(false);
+    try {
+      localStorage.setItem('pwa-dismissed', Date.now().toString());
+    } catch {
+      // Silently fail if localStorage blocked
     }
   }, []);
 
-  const handleDismiss = () => {
-    setShowPrompt(false);
-    localStorage.setItem('ios-install-dismissed', Date.now().toString());
-  };
+  // Touch-optimized dismiss on swipe up
+  useEffect(() => {
+    if (!showBanner || !bannerRef.current) return;
+    
+    let startY = 0;
+    const banner = bannerRef.current;
+    
+    const handleTouchStart = (e: TouchEvent) => {
+      startY = e.touches[0].clientY;
+    };
+    
+    const handleTouchEnd = (e: TouchEvent) => {
+      const endY = e.changedTouches[0].clientY;
+      if (startY - endY > 50) { // Swipe up threshold
+        handleDismiss();
+      }
+    };
+    
+    banner.addEventListener('touchstart', handleTouchStart, { passive: true });
+    banner.addEventListener('touchend', handleTouchEnd, { passive: true });
+    
+    return () => {
+      banner.removeEventListener('touchstart', handleTouchStart);
+      banner.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [showBanner, handleDismiss]);
 
-  if (!isIOS || !showPrompt) return null;
+  if (isInstalled || !showBanner || !deferredPrompt) return null;
+
+  const animationClass = prefersReducedMotion 
+    ? 'opacity-100' 
+    : 'animate-in slide-in-from-top duration-300';
 
   return (
-    <FadeInOut show={showPrompt} className="pointer-events-none">
-      <div className="fixed bottom-4 left-4 right-4 z-[200] max-w-sm mx-auto pointer-events-auto touch-auto">
-        <AnimatedContainer animation="slideUp" className="w-full">
-          <Card className="bg-card/95 backdrop-blur-sm border-border/50 shadow-lg pointer-events-auto touch-auto">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <CardTitle className="text-base">Add to Home Screen</CardTitle>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 -mr-2 -mt-1 pointer-events-auto touch-auto"
-                  onClick={handleDismiss}
-                  onTouchEnd={(e) => {
-                    e.preventDefault();
-                    handleDismiss();
-                  }}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              <CardDescription className="text-sm">
-                To install this app, tap the share button and then "Add to Home Screen".
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                <span>Tap</span>
-                <div className="w-6 h-6 bg-primary/10 rounded flex items-center justify-center">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-                    <polyline points="16,6 12,2 8,6" />
-                    <line x1="12" y1="2" x2="12" y2="15" />
-                  </svg>
-                </div>
-                <span>then "Add to Home Screen"</span>
-              </div>
-            </CardContent>
-          </Card>
-        </AnimatedContainer>
+    <div 
+      ref={bannerRef}
+      className={`fixed top-0 left-0 right-0 z-[100] safe-area-top touch-pan-x ${animationClass}`}
+      role="alert"
+      aria-live="polite"
+    >
+      <div className={`px-4 py-3 flex items-center justify-between gap-3 ${
+        installState === 'error' 
+          ? 'bg-destructive text-destructive-foreground' 
+          : installState === 'success'
+          ? 'bg-green-600 text-white'
+          : 'bg-primary text-primary-foreground'
+      }`}>
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {installState === 'error' ? (
+            <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+          ) : installState === 'success' ? (
+            <CheckCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+          ) : (
+            <Download className="h-4 w-4 shrink-0" aria-hidden="true" />
+          )}
+          <span className="text-sm font-medium truncate">
+            {installState === 'error' 
+              ? (errorMessage || 'Installation failed')
+              : installState === 'success'
+              ? 'Successfully installed!'
+              : 'Install Vault for offline access'
+            }
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {installState !== 'success' && installState !== 'error' && (
+            <button
+              onClick={handleInstall}
+              disabled={installState === 'prompting'}
+              className="bg-primary-foreground text-primary px-4 py-1.5 rounded-md text-sm font-medium 
+                         touch-manipulation select-none min-h-[36px]
+                         hover:opacity-90 active:opacity-80 disabled:opacity-50
+                         transition-opacity"
+              aria-label="Install application"
+            >
+              {installState === 'prompting' ? 'Installing...' : 'Install'}
+            </button>
+          )}
+          <button
+            onClick={handleDismiss}
+            className="p-2 hover:bg-white/20 rounded-md touch-manipulation select-none min-h-[36px] min-w-[36px]
+                       flex items-center justify-center transition-colors"
+            aria-label="Dismiss installation prompt"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
-    </FadeInOut>
+      {/* Swipe indicator for mobile */}
+      <div className="h-1 bg-white/20 mx-auto w-10 rounded-full mt-1 mb-1 md:hidden" aria-hidden="true" />
+    </div>
   );
-}
+});
+
+// iOS Safari - optimized for mobile performance
+export const IOSInstallPrompt = memo(function IOSInstallPrompt() {
+  const [showBanner, setShowBanner] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+  const bannerRef = useRef<HTMLDivElement>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  useEffect(() => {
+    // Early exit for SSR
+    if (typeof window === 'undefined') return;
+
+    // Detect iOS Safari with error handling
+    try {
+      const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isSafari = /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS|OPiOS|EdgiOS/.test(navigator.userAgent);
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+      
+      if (!iOS || !isSafari || isStandalone) return;
+      
+      setIsIOS(true);
+
+      // Check if dismissed (7 days)
+      const dismissed = localStorage.getItem('ios-pwa-dismissed');
+      if (dismissed && Date.now() - parseInt(dismissed) < 7 * 24 * 60 * 60 * 1000) {
+        return;
+      }
+
+      // Delay showing to avoid blocking initial render
+      const timer = setTimeout(() => {
+        requestAnimationFrame(() => setShowBanner(true));
+      }, 4000);
+      return () => clearTimeout(timer);
+    } catch {
+      // Silently fail on unsupported browsers
+    }
+  }, []);
+
+  const handleDismiss = useCallback(() => {
+    setShowBanner(false);
+    try {
+      localStorage.setItem('ios-pwa-dismissed', Date.now().toString());
+    } catch {
+      // Silently fail if localStorage blocked
+    }
+  }, []);
+
+  // Swipe to dismiss
+  useEffect(() => {
+    if (!showBanner || !bannerRef.current) return;
+    
+    let startY = 0;
+    const banner = bannerRef.current;
+    
+    const handleTouchStart = (e: TouchEvent) => {
+      startY = e.touches[0].clientY;
+    };
+    
+    const handleTouchEnd = (e: TouchEvent) => {
+      const endY = e.changedTouches[0].clientY;
+      if (startY - endY > 40) {
+        handleDismiss();
+      }
+    };
+    
+    banner.addEventListener('touchstart', handleTouchStart, { passive: true });
+    banner.addEventListener('touchend', handleTouchEnd, { passive: true });
+    
+    return () => {
+      banner.removeEventListener('touchstart', handleTouchStart);
+      banner.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [showBanner, handleDismiss]);
+
+  if (!isIOS || !showBanner) return null;
+
+  const animationClass = prefersReducedMotion 
+    ? 'opacity-100' 
+    : 'animate-in slide-in-from-top duration-300';
+
+  return (
+    <div 
+      ref={bannerRef}
+      className={`fixed top-0 left-0 right-0 z-[100] safe-area-top touch-pan-x ${animationClass}`}
+      role="alert"
+      aria-live="polite"
+    >
+      {/* Use solid background instead of gradient for better mobile perf */}
+      <div className="bg-blue-600 text-white px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold mb-1.5">Install Vault App</p>
+            <div className="text-xs opacity-95 flex items-center gap-2 flex-wrap leading-relaxed">
+              <span className="flex items-center gap-1">
+                <span>Tap</span>
+                <span className="inline-flex items-center justify-center w-6 h-6 bg-white/25 rounded" aria-label="share icon">
+                  <Share className="h-3.5 w-3.5" aria-hidden="true" />
+                </span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span>then</span>
+                <span className="inline-flex items-center gap-1 bg-white/25 px-2 py-1 rounded text-xs font-medium">
+                  <Plus className="h-3 w-3" aria-hidden="true" /> 
+                  <span>Add to Home</span>
+                </span>
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={handleDismiss}
+            className="p-2 hover:bg-white/20 rounded-md shrink-0 touch-manipulation select-none
+                       min-h-[36px] min-w-[36px] flex items-center justify-center transition-colors"
+            aria-label="Dismiss installation instructions"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      {/* Swipe indicator */}
+      <div className="h-1 bg-white/30 mx-auto w-10 rounded-full mt-1 mb-1" aria-hidden="true" />
+    </div>
+  );
+});

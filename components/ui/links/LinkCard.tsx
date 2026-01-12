@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, memo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, memo, useRef, useCallback, useTransition } from 'react';
 import { motion, useMotionValue, useTransform, useAnimation, PanInfo, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -20,7 +20,8 @@ import {
   Loader2,
   AlertCircle,
   Undo2,
-  Pin
+  Pin,
+  MousePointerClick
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -36,6 +37,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { formatDistanceToNow } from 'date-fns';
 import { LinkStatus } from '@/lib/utils/link-status';
+import { trackLinkClick } from '@/lib/services/database';
 
 interface LinkCardProps {
   link: Link;
@@ -67,7 +69,8 @@ const arePropsEqual = (
       prevProps.link.folderId !== nextProps.link.folderId ||
       prevProps.link.wordCount !== nextProps.link.wordCount ||
       prevProps.link.fullContent !== nextProps.link.fullContent ||
-      prevProps.link.isPinned !== nextProps.link.isPinned) {
+      prevProps.link.isPinned !== nextProps.link.isPinned ||
+      prevProps.link.clickCount !== nextProps.link.clickCount) {
     return false;
   }
   
@@ -301,9 +304,15 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({
     }
   };
 
-  const handleOpenLink = () => {
+  const handleOpenLink = useCallback((source: 'direct' | 'search' | 'quicklook' | 'external' = 'direct') => {
+    // Track the click (fire and forget - don't block UI)
+    if (user?.id) {
+      trackLinkClick(link.id, user.id, searchQuery ? 'search' : source).catch(() => {
+        // Silently fail - analytics should never break the app
+      });
+    }
     window.open(link.url, '_blank', 'noopener,noreferrer');
-  };
+  }, [link.id, link.url, user?.id, searchQuery]);
 
   const handleCopyLink = async () => {
     try {
@@ -545,14 +554,14 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({
                 <div className="flex-1 min-w-0">
                   <h3 
                     className="font-semibold text-foreground line-clamp-2 cursor-pointer hover:text-primary transition-colors duration-200"
-                    onClick={handleOpenLink}
+                    onClick={() => handleOpenLink('direct')}
                     title={link.name}
                   >
                     {link.name}
                   </h3>
                   <p 
                     className="text-sm text-muted-foreground truncate cursor-pointer hover:text-foreground transition-colors mt-0.5 font-mono text-xs"
-                    onClick={handleOpenLink}
+                    onClick={() => handleOpenLink('direct')}
                     title={link.url}
                   >
                     {new URL(link.url).hostname}
@@ -581,7 +590,7 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={handleOpenLink}
+                    onClick={() => handleOpenLink('external')}
                     className="h-8 w-8 p-0"
                     title="Open link"
                   >
@@ -761,6 +770,17 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({
                   >
                     <AlertCircle className="w-3.5 h-3.5 text-red-500" />
                     <span className="text-red-500 font-medium hidden sm:inline">Failed</span>
+                  </div>
+                )}
+
+                {/* Click count indicator */}
+                {(link.clickCount ?? 0) > 0 && (
+                  <div 
+                    className="flex items-center gap-1 text-xs text-muted-foreground"
+                    title={`Opened ${link.clickCount} time${(link.clickCount ?? 0) > 1 ? 's' : ''}`}
+                  >
+                    <MousePointerClick className="w-3 h-3" />
+                    <span>{link.clickCount}</span>
                   </div>
                 )}
                 

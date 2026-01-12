@@ -379,6 +379,7 @@ export const getLinks = async (
       embedding: link.embedding || undefined,
       wordCount: link.word_count || undefined,
       isPinned: link.is_pinned || false,
+      clickCount: link.click_count || 0,
     }));
 
     return {
@@ -1135,5 +1136,192 @@ export const updateNotePinned = async (noteId: string, isPinned: boolean): Promi
   } catch (error: any) {
     logger.error('updateNotePinned: FAILED', { noteId, error: error.message }, error);
     throw error;
+  }
+};
+
+// ============ Link Analytics Functions ============
+
+export interface LinkAnalytics {
+  linkId: string;
+  linkName: string;
+  linkUrl: string;
+  totalClicks: number;
+  lastClicked: string | null;
+}
+
+// Track a link click/open
+export const trackLinkClick = async (
+  linkId: string, 
+  userId: string, 
+  source: 'direct' | 'search' | 'quicklook' | 'external' = 'direct'
+): Promise<void> => {
+  const client = requireSupabase();
+  
+  try {
+    // Use the RPC function if available, otherwise fallback to direct insert
+    const { error: rpcError } = await client.rpc('track_link_click', {
+      p_link_id: linkId,
+      p_user_id: userId,
+      p_source: source,
+    });
+
+    if (rpcError) {
+      // Fallback: direct insert if RPC doesn't exist
+      logger.debug('trackLinkClick: RPC failed, using fallback', { error: rpcError.message });
+      
+      // Insert analytics record
+      const { error: insertError } = await client
+        .from('link_analytics')
+        .insert({
+          link_id: linkId,
+          user_id: userId,
+          source,
+        });
+      
+      if (insertError && !insertError.message.includes('does not exist')) {
+        throw insertError;
+      }
+
+      // Update click count - try RPC first, fall back to manual update
+      try {
+        const { error: rpcError } = await client.rpc('increment_click_count', {
+          row_id: linkId,
+        });
+        
+        if (rpcError) {
+          // If increment function doesn't exist, do manual update
+          const { error: updateError } = await client
+            .from('links')
+            .update({ click_count: 1 })
+            .eq('id', linkId);
+          
+          if (updateError && !updateError.message.includes('does not exist')) {
+            logger.warn('trackLinkClick: Could not update click count', { error: updateError.message });
+          }
+        }
+      } catch {
+        // Silently fail if click_count column doesn't exist yet
+        logger.warn('trackLinkClick: Could not update click count');
+      }
+    }
+
+    logger.debug('trackLinkClick: Success', { linkId, source });
+  } catch (error: any) {
+    // Don't throw - analytics should never break the app
+    logger.warn('trackLinkClick: Failed (non-critical)', { 
+      linkId, 
+      error: error.message 
+    });
+  }
+};
+
+// Get most clicked links for a user
+export const getMostClickedLinks = async (
+  userId: string,
+  limit: number = 10,
+  days: number = 30
+): Promise<LinkAnalytics[]> => {
+  const client = requireSupabase();
+  
+  try {
+    // Try using the RPC function first
+    const { data: rpcData, error: rpcError } = await client.rpc('get_most_clicked_links', {
+      p_user_id: userId,
+      p_limit: limit,
+      p_days: days,
+    });
+
+    if (!rpcError && rpcData) {
+      return rpcData.map((item: any) => ({
+        linkId: item.link_id,
+        linkName: item.link_name,
+        linkUrl: item.link_url,
+        totalClicks: parseInt(item.total_clicks) || 0,
+        lastClicked: item.last_clicked,
+      }));
+    }
+
+    // Fallback: direct query
+    logger.debug('getMostClickedLinks: RPC failed, using fallback', { error: rpcError?.message });
+    
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+
+    const { data, error } = await client
+      .from('links')
+      .select('id, name, url, click_count')
+      .eq('user_id', userId)
+      .gt('click_count', 0)
+      .order('click_count', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      // If click_count doesn't exist, return empty array
+      if (error.message.includes('does not exist')) {
+        return [];
+      }
+      throw error;
+    }
+
+    return (data || []).map((item: any) => ({
+      linkId: item.id,
+      linkName: item.name,
+      linkUrl: item.url,
+      totalClicks: item.click_count || 0,
+      lastClicked: null,
+    }));
+  } catch (error: any) {
+    logger.warn('getMostClickedLinks: Failed', { 
+      userId, 
+      error: error.message 
+    });
+    return [];
+  }
+};
+
+// Get click analytics for a specific link
+export const getLinkClickAnalytics = async (
+  linkId: string,
+  userId: string,
+  days: number = 30
+): Promise<{ totalClicks: number; clicksByDay: { date: string; count: number }[] }> => {
+  const client = requireSupabase();
+  
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+
+    const { data, error } = await client
+      .from('link_analytics')
+      .select('clicked_at')
+      .eq('link_id', linkId)
+      .eq('user_id', userId)
+      .gte('clicked_at', cutoffDate.toISOString())
+      .order('clicked_at', { ascending: true });
+
+    if (error) {
+      if (error.message.includes('does not exist')) {
+        return { totalClicks: 0, clicksByDay: [] };
+      }
+      throw error;
+    }
+
+    // Group by day
+    const clicksByDay: Record<string, number> = {};
+    (data || []).forEach((item: any) => {
+      const date = new Date(item.clicked_at).toISOString().split('T')[0];
+      clicksByDay[date] = (clicksByDay[date] || 0) + 1;
+    });
+
+    return {
+      totalClicks: data?.length || 0,
+      clicksByDay: Object.entries(clicksByDay).map(([date, count]) => ({ date, count })),
+    };
+  } catch (error: any) {
+    logger.warn('getLinkClickAnalytics: Failed', { 
+      linkId, 
+      error: error.message 
+    });
+    return { totalClicks: 0, clicksByDay: [] };
   }
 };

@@ -468,6 +468,83 @@
    MOBILE OPTIMIZATIONS
    ============================================ */
 
+/* Touch manipulation for better mobile response */
+.touch-manipulation {
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Prevent iOS text size adjustment */
+.text-size-adjust-none {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Safe area insets for notched devices */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-area-left {
+  padding-left: env(safe-area-inset-left);
+}
+
+.safe-area-right {
+  padding-right: env(safe-area-inset-right);
+}
+
+.safe-area-inset {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Hardware acceleration for smoother animations */
+.gpu-accelerated {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Mobile-specific touch handling */
+@media (pointer: coarse) {
+  /* Larger touch targets on touch devices */
+  button, 
+  a, 
+  [role="button"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Remove hover states that can feel stuck on touch */
+  .card-hover:hover {
+    transform: none;
+    box-shadow: none;
+  }
+  
+  /* Use active state instead of hover on touch */
+  .card-hover:active {
+    transform: scale(0.98);
+    transition-duration: 100ms;
+  }
+
+  /* Disable hover transforms on mobile */
+  .interactive:hover {
+    transform: none;
+  }
+  
+  .interactive:active {
+    transform: scale(0.97);
+    transition-duration: 100ms;
+  }
+}
+
 @media (max-width: 768px) {
   .responsive-text {
     font-size: clamp(0.875rem, 2.5vw, 1rem);
@@ -477,20 +554,82 @@
     padding: clamp(1rem, 4vw, 1.5rem);
   }
   
-  /* Better touch targets on mobile */
-  button, a, [role="button"] {
-    min-height: 44px;
+  /* Reduce complex effects on mobile for performance */
+  .glass,
+  .glass-strong {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: hsl(var(--card));
   }
 
-  /* Reduce motion on mobile for performance */
-  @media (prefers-reduced-motion: reduce) {
-    .card-hover:hover {
-      transform: none;
-    }
-    
-    .interactive:hover {
-      transform: none;
-    }
+  /* Simplify shadows on mobile */
+  .shadow-glow,
+  .shadow-glow-sm,
+  .glow-primary,
+  .glow-accent {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .dark .shadow-glow,
+  .dark .shadow-glow-sm,
+  .dark .glow-primary,
+  .dark .glow-accent {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Disable noise overlay on mobile for performance */
+  .noise-overlay::before {
+    display: none;
+  }
+
+  /* Simpler animations on mobile */
+  .card-hover:hover {
+    transform: none;
+    box-shadow: inherit;
+  }
+}
+
+/* Reduced motion preferences - respect user settings */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .card-hover:hover,
+  .interactive:hover {
+    transform: none;
+  }
+
+  .skeleton::after {
+    animation: none;
+  }
+}
+
+/* PWA standalone mode optimizations */
+@media (display-mode: standalone) {
+  /* Prevent text selection in standalone mode */
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Allow text selection in inputs and textareas */
+  input,
+  textarea,
+  [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /* Hide scrollbars in standalone mode for cleaner look */
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
   }
 }
 

@@ -35,6 +35,7 @@ import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { FolderDialog } from '@/components/folders/FolderDialog';
 import { TagDialog } from '@/components/tags/TagDialog';
+import { MostUsedLinks } from '@/components/ui/MostUsedLinks';
 import { Folder as FolderType, Tag as TagType } from '@/lib/types';
 
 interface SidebarProps {
@@ -301,6 +302,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
               </Badge>
             </Button>
           )}
+        </motion.div>
+
+        {/* Most Used Links Widget */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springConfig, delay: 0.12 }}
+        >
+          <MostUsedLinks compact limit={5} className="mb-2" />
         </motion.div>
 
         <Separator className="bg-border/50" />

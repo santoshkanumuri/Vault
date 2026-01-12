@@ -65,6 +65,8 @@ export interface Link {
   chunks?: TextChunk[];
   // Pinned/favorites feature
   isPinned?: boolean;
+  // Analytics - click tracking
+  clickCount?: number;
 }
 
 export interface Note {

@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useCallback, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -23,10 +23,11 @@ import { LoadingScreen, SlideIn, CardSkeleton, PageTransition } from '@/componen
 import { KeyboardShortcutsModal } from '@/components/ui/KeyboardShortcutsModal';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
-const springConfig = {
-  type: 'spring',
-  stiffness: 400,
-  damping: 30,
+// Simple transition for mobile performance
+const simpleTransition = {
+  type: 'tween',
+  duration: 0.2,
+  ease: 'easeOut',
 };
 
 export default function Home() {
@@ -39,37 +40,46 @@ export default function Home() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
 
-  const handleEditLink = (link: Link) => {
+  // Memoized handlers to prevent unnecessary re-renders
+  const handleEditLink = useCallback((link: Link) => {
     setEditingLink(link);
     setIsLinkDialogOpen(true);
-  };
+  }, []);
 
-  const handleEditNote = (note: Note) => {
+  const handleEditNote = useCallback((note: Note) => {
     setEditingNote(note);
     setIsNoteDialogOpen(true);
-  };
+  }, []);
 
-  const handleCloseLinkDialog = () => {
+  const handleCloseLinkDialog = useCallback(() => {
     setIsLinkDialogOpen(false);
     setEditingLink(null);
-  };
+  }, []);
 
-  const handleCloseNoteDialog = () => {
+  const handleCloseNoteDialog = useCallback(() => {
     setIsNoteDialogOpen(false);
     setEditingNote(null);
-  };
+  }, []);
 
-  const handleAddLink = () => {
+  const handleAddLink = useCallback(() => {
     setEditingLink(null);
-    // Use timeout to avoid focus fighting with DropdownMenu
-    setTimeout(() => setIsLinkDialogOpen(true), 10);
-  };
+    // Use requestAnimationFrame for smoother UI
+    requestAnimationFrame(() => setIsLinkDialogOpen(true));
+  }, []);
 
-  const handleAddNote = () => {
+  const handleAddNote = useCallback(() => {
     setEditingNote(null);
-    // Use timeout to avoid focus fighting with DropdownMenu
-    setTimeout(() => setIsNoteDialogOpen(true), 10);
-  };
+    // Use requestAnimationFrame for smoother UI
+    requestAnimationFrame(() => setIsNoteDialogOpen(true));
+  }, []);
+
+  const handleCloseMobileSidebar = useCallback(() => {
+    setIsMobileSidebarOpen(false);
+  }, []);
+
+  const handleOpenMobileSidebar = useCallback(() => {
+    setIsMobileSidebarOpen(true);
+  }, []);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -82,11 +92,12 @@ export default function Home() {
     },
   });
 
-  const getCurrentFolderName = () => {
+  // Memoized folder name to prevent recalculation
+  const currentFolderName = useMemo(() => {
     if (!currentFolder) return 'All Items';
     const folder = folders.find(f => f.id === currentFolder);
     return folder ? folder.name : 'All Items';
-  };
+  }, [currentFolder, folders]);
 
   // Auth loading state
   if (authLoading) {
@@ -103,9 +114,9 @@ export default function Home() {
       {/* Desktop Sidebar */}
       <motion.div 
         className="hidden lg:flex w-72 flex-shrink-0"
-        initial={{ x: -20, opacity: 0 }}
+        initial={{ x: -16, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
-        transition={{ ...springConfig, delay: 0.1 }}
+        transition={{ ...simpleTransition, delay: 0.05 }}
       >
         <Sidebar />
       </motion.div>
@@ -115,36 +126,29 @@ export default function Home() {
         isOpen={isMobileSidebarOpen} 
         direction="left"
         className="fixed left-0 top-0 h-full w-72 bg-card border-r border-border z-50 lg:hidden"
+        onClose={handleCloseMobileSidebar}
       >
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="font-bold text-lg">Menu</h2>
           <Button 
             variant="ghost" 
             size="sm" 
-            onClick={() => setIsMobileSidebarOpen(false)}
-            className="h-8 w-8 p-0"
+            onClick={handleCloseMobileSidebar}
+            className="h-9 w-9 p-0 touch-manipulation"
           >
             <X className="h-4 w-4" />
           </Button>
         </div>
-        <div className="h-[calc(100vh-4rem)] overflow-y-auto">
-          <Sidebar onNavigate={() => setIsMobileSidebarOpen(false)} />
+        <div className="h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar touch-pan-y">
+          <Sidebar onNavigate={handleCloseMobileSidebar} />
         </div>
       </SlideIn>
 
       {/* Main Content */}
-      <motion.div 
-        className="flex-1 flex flex-col overflow-hidden"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3, delay: 0.15 }}
-      >
-        {/* Header */}
-        <motion.header 
-          className="border-b border-border/50 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30"
-          initial={{ y: -10, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ ...springConfig, delay: 0.2 }}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header - simplified for mobile performance */}
+        <header 
+          className="border-b border-border/50 bg-background sticky top-0 z-30"
         >
           <div className="flex items-center justify-between p-4 lg:px-6">
             <div className="flex items-center gap-4">
@@ -152,22 +156,16 @@ export default function Home() {
               <Button 
                 variant="ghost" 
                 size="sm" 
-                className="lg:hidden h-9 w-9 p-0"
-                onClick={() => setIsMobileSidebarOpen(true)}
+                className="lg:hidden h-10 w-10 p-0 touch-manipulation"
+                onClick={handleOpenMobileSidebar}
               >
                 <Menu className="h-5 w-5" />
               </Button>
               
               <div className="hidden sm:block">
-                <motion.h1 
-                  className="text-xl sm:text-2xl font-bold tracking-tight"
-                  key={getCurrentFolderName()}
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={springConfig}
-                >
-                  {getCurrentFolderName()}
-                </motion.h1>
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+                  {currentFolderName}
+                </h1>
                 <p className="text-sm text-muted-foreground hidden sm:block">
                   Your digital sanctuary
                 </p>
@@ -186,7 +184,7 @@ export default function Home() {
               {activeTab === 'all' ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button size="sm" className="gap-1.5 shadow-glow-sm hover:shadow-glow transition-shadow">
+                    <Button size="sm" className="gap-1.5 min-h-[36px] touch-manipulation">
                       <Plus className="h-4 w-4" />
                       <span className="hidden sm:inline">Add</span>
                       <ChevronDown className="h-3 w-3 opacity-70" />
@@ -195,14 +193,14 @@ export default function Home() {
                   <DropdownMenuContent align="end" className="w-40">
                     <DropdownMenuItem 
                       onClick={handleAddLink}
-                      className="gap-2"
+                      className="gap-2 min-h-[40px]"
                     >
                       <LinkIcon className="h-4 w-4" />
                       Add Link
                     </DropdownMenuItem>
                     <DropdownMenuItem 
                       onClick={handleAddNote}
-                      className="gap-2"
+                      className="gap-2 min-h-[40px]"
                     >
                       <StickyNote className="h-4 w-4" />
                       Add Note
@@ -213,7 +211,7 @@ export default function Home() {
                 <Button 
                   onClick={() => activeTab === 'links' ? handleAddLink() : handleAddNote()} 
                   size="sm"
-                  className="gap-1.5 shadow-glow-sm hover:shadow-glow transition-shadow"
+                  className="gap-1.5 min-h-[36px] touch-manipulation"
                 >
                   <Plus className="h-4 w-4" />
                   <span className="hidden sm:inline">
@@ -226,40 +224,34 @@ export default function Home() {
           
           {/* Mobile Title (below search) */}
           <div className="sm:hidden px-4 pb-2">
-            <motion.h1 
-              className="text-lg font-bold tracking-tight"
-              key={getCurrentFolderName()}
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={springConfig}
-            >
-              {getCurrentFolderName()}
-            </motion.h1>
+            <h1 className="text-lg font-bold tracking-tight">
+              {currentFolderName}
+            </h1>
           </div>
-        </motion.header>
+        </header>
 
         {/* Content */}
-        <main className="flex-1 overflow-y-auto custom-scrollbar">
+        <main className="flex-1 overflow-y-auto custom-scrollbar touch-pan-y">
           <PageTransition className="p-4 lg:p-6">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
               <TabsList className="bg-muted/50 p-1">
                 <TabsTrigger 
                   value="all" 
-                  className="font-medium data-[state=active]:bg-background data-[state=active]:shadow-sm"
+                  className="font-medium min-h-[40px] touch-manipulation data-[state=active]:bg-background data-[state=active]:shadow-sm"
                 >
                   <Sparkles className="mr-2 h-4 w-4" />
                   All
                 </TabsTrigger>
                 <TabsTrigger 
                   value="links" 
-                  className="font-medium data-[state=active]:bg-background data-[state=active]:shadow-sm"
+                  className="font-medium min-h-[40px] touch-manipulation data-[state=active]:bg-background data-[state=active]:shadow-sm"
                 >
                   <LinkIcon className="mr-2 h-4 w-4" />
                   Links
                 </TabsTrigger>
                 <TabsTrigger 
                   value="notes" 
-                  className="font-medium data-[state=active]:bg-background data-[state=active]:shadow-sm"
+                  className="font-medium min-h-[40px] touch-manipulation data-[state=active]:bg-background data-[state=active]:shadow-sm"
                 >
                   <StickyNote className="mr-2 h-4 w-4" />
                   Notes
@@ -270,52 +262,39 @@ export default function Home() {
               {appLoading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {[...Array(6)].map((_, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.05 }}
-                    >
-                      <CardSkeleton />
-                    </motion.div>
+                    <CardSkeleton key={i} />
                   ))}
                 </div>
               ) : (
                 <>
-                  <AnimatePresence mode="wait">
-                    <TabsContent value="all" className="mt-0" key="all">
-                      <CombinedList 
-                        onEditLink={handleEditLink} 
-                        onEditNote={handleEditNote}
-                        onAddLink={handleAddLink}
-                        onAddNote={handleAddNote}
-                      />
-                    </TabsContent>
-                  </AnimatePresence>
+                  <TabsContent value="all" className="mt-0" key="all">
+                    <CombinedList 
+                      onEditLink={handleEditLink} 
+                      onEditNote={handleEditNote}
+                      onAddLink={handleAddLink}
+                      onAddNote={handleAddNote}
+                    />
+                  </TabsContent>
 
-                  <AnimatePresence mode="wait">
-                    <TabsContent value="links" className="mt-0" key="links">
-                      <LinksList 
-                        onEditLink={handleEditLink}
-                        onAddLink={handleAddLink}
-                      />
-                    </TabsContent>
-                  </AnimatePresence>
+                  <TabsContent value="links" className="mt-0" key="links">
+                    <LinksList 
+                      onEditLink={handleEditLink}
+                      onAddLink={handleAddLink}
+                    />
+                  </TabsContent>
 
-                  <AnimatePresence mode="wait">
-                    <TabsContent value="notes" className="mt-0" key="notes">
-                      <NotesList 
-                        onEditNote={handleEditNote}
-                        onAddNote={handleAddNote}
-                      />
-                    </TabsContent>
-                  </AnimatePresence>
+                  <TabsContent value="notes" className="mt-0" key="notes">
+                    <NotesList 
+                      onEditNote={handleEditNote}
+                      onAddNote={handleAddNote}
+                    />
+                  </TabsContent>
                 </>
               )}
             </Tabs>
           </PageTransition>
         </main>
-      </motion.div>
+      </div>
 
       {/* Dialogs */}
       <LinkDialog
@@ -336,10 +315,8 @@ export default function Home() {
       <PWAInstallPrompt />
       <IOSInstallPrompt />
 
-      {/* Quick Capture FAB - shown on mobile and as additional desktop option */}
-      <div className="lg:hidden">
-        <QuickCaptureButton onAddLink={handleAddLink} onAddNote={handleAddNote} />
-      </div>
+      {/* Quick Capture FAB - always visible for easy access */}
+      <QuickCaptureButton onAddLink={handleAddLink} onAddNote={handleAddNote} />
 
       {/* Keyboard Shortcuts Help */}
       <KeyboardShortcutsModal />

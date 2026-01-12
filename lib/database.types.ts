@@ -173,6 +173,29 @@ export interface Database {
           tag_id?: string
         }
       }
+      link_analytics: {
+        Row: {
+          id: string
+          link_id: string
+          user_id: string
+          clicked_at: string
+          source: string
+        }
+        Insert: {
+          id?: string
+          link_id: string
+          user_id: string
+          clicked_at?: string
+          source?: string
+        }
+        Update: {
+          id?: string
+          link_id?: string
+          user_id?: string
+          clicked_at?: string
+          source?: string
+        }
+      }
       background_tasks: {
         Row: {
           id: string

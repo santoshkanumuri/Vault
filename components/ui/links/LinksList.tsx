@@ -8,7 +8,7 @@ import { smartSearch } from '@/lib/utils/smart-search';
 import { useApp } from '@/contexts/AppContext';
 import { Link } from '@/lib/types';
 import { EmptyState } from '../animations';
-import { LinkIcon, Search, FolderOpen, Plus, Sparkles, Loader2, ArrowUpDown } from 'lucide-react';
+import { LinkIcon, Search, FolderOpen, Plus, Sparkles, Loader2, ArrowUpDown, TrendingUp } from 'lucide-react';
 import { Button } from '../button';
 import { BulkActions } from '../BulkActions';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
@@ -20,7 +20,7 @@ interface LinksListProps {
   onAddLink?: () => void;
 }
 
-type SortOption = 'newest' | 'oldest' | 'alphabetical';
+type SortOption = 'newest' | 'oldest' | 'alphabetical' | 'most-clicked';
 
 export const LinksList: React.FC<LinksListProps> = ({ onEditLink, onAddLink }) => {
   const { links, folders, tags, currentFolder, searchQuery, isLoadingMore, hasMoreLinks, loadMoreLinks, deleteLink } = useApp();
@@ -74,12 +74,14 @@ export const LinksList: React.FC<LinksListProps> = ({ onEditLink, onAddLink }) =
     // Apply sorting
     switch (sortBy) {
       case 'oldest':
-        return result.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        return [...result].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       case 'alphabetical':
-        return result.sort((a, b) => a.name.localeCompare(b.name));
+        return [...result].sort((a, b) => a.name.localeCompare(b.name));
+      case 'most-clicked':
+        return [...result].sort((a, b) => (b.clickCount ?? 0) - (a.clickCount ?? 0));
       case 'newest':
       default:
-        return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        return [...result].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }
   }, [links, folders, tags, currentFolder, searchQuery, sortBy]);
 
@@ -223,14 +225,20 @@ export const LinksList: React.FC<LinksListProps> = ({ onEditLink, onAddLink }) =
         
         {/* Sort Dropdown */}
         <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
-          <SelectTrigger className="w-[140px] gap-2">
-            <ArrowUpDown className="h-4 w-4" />
+          <SelectTrigger className="w-[160px] gap-2">
+            {sortBy === 'most-clicked' ? <TrendingUp className="h-4 w-4" /> : <ArrowUpDown className="h-4 w-4" />}
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="newest">Newest First</SelectItem>
             <SelectItem value="oldest">Oldest First</SelectItem>
             <SelectItem value="alphabetical">Alphabetical</SelectItem>
+            <SelectItem value="most-clicked">
+              <span className="flex items-center gap-2">
+                <TrendingUp className="h-3.5 w-3.5" />
+                Most Clicked
+              </span>
+            </SelectItem>
           </SelectContent>
         </Select>
       </div>
