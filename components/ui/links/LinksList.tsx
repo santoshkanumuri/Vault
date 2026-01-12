@@ -12,7 +12,8 @@ import { LinkIcon, Search, FolderOpen, Plus, Sparkles, Loader2, ArrowUpDown } fr
 import { Button } from '../button';
 import { BulkActions } from '../BulkActions';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { QuickLookModal } from '../QuickLookModal';
 
 interface LinksListProps {
   onEditLink: (link: Link) => void;
@@ -25,6 +26,34 @@ export const LinksList: React.FC<LinksListProps> = ({ onEditLink, onAddLink }) =
   const { links, folders, tags, currentFolder, searchQuery, isLoadingMore, hasMoreLinks, loadMoreLinks, deleteLink } = useApp();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<SortOption>('newest');
+
+  // Quick Look State
+  const [quickLookItem, setQuickLookItem] = React.useState<Link | null>(null);
+
+  const handleQuickLook = useCallback((link: Link) => {
+    setQuickLookItem(link);
+  }, []);
+
+  const closeQuickLook = useCallback(() => {
+    setQuickLookItem(null);
+  }, []);
+
+  // Create stable lookup maps for folders and tags to prevent new object references
+  const folderMap = useMemo(() => {
+    const map = new Map<string, any>();
+    folders.forEach(f => map.set(f.id, f));
+    return map;
+  }, [folders]);
+
+  const tagMap = useMemo(() => {
+    const map = new Map<string, any>();
+    tags.forEach(t => map.set(t.id, t));
+    return map;
+  }, [tags]);
+
+  const getItemTags = useCallback((tagIds: string[]) => {
+    return tagIds.map(id => tagMap.get(id)).filter((t): t is any => t !== undefined);
+  }, [tagMap]);
 
   const filteredLinks = useMemo(() => {
     let result = links;
@@ -165,6 +194,7 @@ export const LinksList: React.FC<LinksListProps> = ({ onEditLink, onAddLink }) =
                       onEdit={onEditLink}
                       index={index}
                       searchQuery={searchQuery}
+                       onQuickLook={() => handleQuickLook(link)}
                     />
                   );
           })}
@@ -250,6 +280,7 @@ export const LinksList: React.FC<LinksListProps> = ({ onEditLink, onAddLink }) =
                       tags={linkTags}
                       onEdit={onEditLink}
                       index={linkIndex}
+                      onQuickLook={() => handleQuickLook(link)}
                       searchQuery={searchQuery}
                     />
                   );

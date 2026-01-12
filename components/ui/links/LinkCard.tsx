@@ -47,6 +47,7 @@ interface LinkCardProps {
   isSelectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
+  onQuickLook?: () => void; // Added for Quick Look
 }
 
 // Custom comparison function for React.memo - only re-render when relevant props change
@@ -54,6 +55,9 @@ const arePropsEqual = (
   prevProps: LinkCardProps,
   nextProps: LinkCardProps
 ): boolean => {
+  // Check Quick Look handler
+  if (prevProps.onQuickLook !== nextProps.onQuickLook) return false;
+
   // Check if link data changed
   if (prevProps.link.id !== nextProps.link.id ||
       prevProps.link.name !== nextProps.link.name ||
@@ -118,7 +122,8 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({
   searchQuery = '',
   isSelectionMode = false,
   isSelected = false,
-  onToggleSelect
+  onToggleSelect,
+  onQuickLook
 }) => {
   const { deleteLink, refreshLinkMetadata, linkStatuses, recentlyCreatedIds, togglePinLink } = useApp();
   const { user } = useAuth();
@@ -127,6 +132,44 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({
   const [copied, setCopied] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   
+  const pressTimer = useRef<NodeJS.Timeout>();
+
+  // Handle Quick Look Trigger (Spacebar & Long Press)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        // Only trigger if hovered, not editing text, and Space is pressed
+        if (isHovered && e.code === 'Space' && onQuickLook) {
+          // Check if we are focusing an input/textarea
+          const activeElement = document.activeElement;
+          const isInputFocused = activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement;
+          
+          if (!isInputFocused) {
+            e.preventDefault(); // Prevent scrolling
+            onQuickLook();
+          }
+        }
+    };
+
+    if (isHovered) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isHovered, onQuickLook]);
+
+  // Touch handlers for long press
+  const handleTouchStart = () => {
+    if (!onQuickLook) return;
+    pressTimer.current = setTimeout(() => {
+        onQuickLook();
+        // Vibrate to indicate success if supported
+        if (navigator.vibrate) navigator.vibrate(50);
+    }, 500); // 500ms long press
+  };
+
+  const handleTouchEnd = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+  };
+
   // Get status from centralized polling in AppContext
   const linkStatus = linkStatuses.get(link.id) || {
     hasChunks: false,
@@ -370,6 +413,9 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({
       } : { duration: 0 }}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchEnd}
       className={`relative ${isNew ? 'z-10' : ''}`}
     >
       {/* Delete background revealed on swipe */}

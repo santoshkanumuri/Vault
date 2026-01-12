@@ -35,6 +35,7 @@ interface NoteCardProps {
   isSelectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
+  onQuickLook?: () => void; // Added for Quick Look
 }
 
 // Custom comparison function for React.memo - only re-render when relevant props change
@@ -42,6 +43,9 @@ const arePropsEqual = (
   prevProps: NoteCardProps,
   nextProps: NoteCardProps
 ): boolean => {
+  // Check Quick Look handler
+  if (prevProps.onQuickLook !== nextProps.onQuickLook) return false;
+
   // Check if note data changed
   if (prevProps.note.id !== nextProps.note.id ||
       prevProps.note.title !== nextProps.note.title ||
@@ -101,11 +105,49 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
   isSelectionMode = false,
   isSelected = false,
   onToggleSelect,
+  onQuickLook
 }) => {
   const { deleteNote, refreshNoteContent, recentlyCreatedIds, togglePinNote } = useApp();
   const { toast } = useToast();
   const [isHovered, setIsHovered] = useState(false);
   const [isUpdatingContent, setIsUpdatingContent] = useState(false);
+
+  const pressTimer = useRef<NodeJS.Timeout>();
+
+  // Handle Quick Look Trigger (Spacebar & Long Press)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        // Only trigger if hovered, not editing text, and Space is pressed
+        if (isHovered && e.code === 'Space' && onQuickLook) {
+          // Check if we are focusing an input/textarea
+          const activeElement = document.activeElement;
+          const isInputFocused = activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement;
+          
+          if (!isInputFocused) {
+            e.preventDefault(); // Prevent scrolling
+            onQuickLook();
+          }
+        }
+    };
+
+    if (isHovered) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isHovered, onQuickLook]);
+
+  // Touch handlers for long press
+  const handleTouchStart = () => {
+    if (!onQuickLook) return;
+    pressTimer.current = setTimeout(() => {
+        onQuickLook();
+        if (navigator.vibrate) navigator.vibrate(50);
+    }, 500); 
+  };
+
+  const handleTouchEnd = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+  };
 
   // Status tracking
   const hasEmbedding = !!(note.embedding && note.embedding.length > 0);
@@ -288,6 +330,9 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
       } : { duration: 0 }}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchEnd}
       className={`relative ${isNew ? 'z-10' : ''}`}
     >
       {/* Delete background revealed on swipe */}

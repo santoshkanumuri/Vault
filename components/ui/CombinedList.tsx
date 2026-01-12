@@ -11,6 +11,8 @@ import { Link, Note, Folder, Tag } from '@/lib/types';
 import { EmptyState } from './animations';
 import { Inbox, Search, FolderOpen, Plus, Sparkles, Pin, Tag } from 'lucide-react';
 import { Button } from './button';
+import { QuickLookModal } from './QuickLookModal';
+import { SerendipityWidget } from './SerendipityWidget';
 
 interface CombinedListProps {
   onEditLink: (link: Link) => void;
@@ -25,11 +27,28 @@ export const CombinedList: React.FC<CombinedListProps> = ({
   onAddLink,
   onAddNote 
 }) => {
-  const { links, notes, folders, tags, currentFolder, currentTag, searchQuery } = useApp();
+  const { links, notes, folders, tags, currentFolder, currentTag, showPinnedOnly, searchQuery } = useApp();
+  
+  // Quick Look State
+  const [quickLookItem, setQuickLookItem] = React.useState<{ item: Link | Note, type: 'link' | 'note' } | null>(null);
+
+  const handleQuickLook = useCallback((item: Link | Note, type: 'link' | 'note') => {
+    setQuickLookItem({ item, type });
+  }, []);
+
+  const closeQuickLook = useCallback(() => {
+    setQuickLookItem(null);
+  }, []);
 
   const filteredItems = useMemo(() => {
     let linkResults = links;
     let noteResults = notes;
+
+    // Filter by pinned if selected
+    if (showPinnedOnly) {
+      linkResults = linkResults.filter(link => link.isPinned);
+      noteResults = noteResults.filter(note => note.isPinned);
+    }
 
     // Filter by folder if selected
     if (currentFolder) {
@@ -92,7 +111,7 @@ export const CombinedList: React.FC<CombinedListProps> = ({
       // Within same pin status, sort by date
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [links, notes, folders, tags, currentFolder, currentTag, searchQuery]);
+  }, [links, notes, folders, tags, currentFolder, currentTag, showPinnedOnly, searchQuery]);
 
   // Create stable lookup maps for folders and tags to prevent new object references
   const folderMap = useMemo(() => {
@@ -220,6 +239,15 @@ export const CombinedList: React.FC<CombinedListProps> = ({
     // For small lists, use regular rendering with layout animations
     return (
       <div>
+        {/* Serendipity Widget - Only show on main "All" view with content */}
+        {!currentFolder && !currentTag && !showPinnedOnly && !searchQuery.trim() && (links.length > 0 || notes.length > 0) && (
+            <SerendipityWidget 
+                links={links} 
+                notes={notes} 
+                onQuickLook={handleQuickLook}
+            />
+        )}
+
         {/* Show search info when searching */}
         {searchQuery.trim() && (
           <motion.div 
@@ -302,6 +330,7 @@ export const CombinedList: React.FC<CombinedListProps> = ({
                           onEdit={onEditLink}
                           index={index}
                           searchQuery={searchQuery}
+                          onQuickLook={() => handleQuickLook(link, 'link')}
                         />
                       </motion.div>
                     </React.Fragment>
@@ -341,6 +370,7 @@ export const CombinedList: React.FC<CombinedListProps> = ({
                           onEdit={onEditNote}
                           index={index}
                           searchQuery={searchQuery}
+                          onQuickLook={() => handleQuickLook(note, 'note')}
                         />
                       </motion.div>
                     </React.Fragment>
@@ -373,8 +403,15 @@ export const CombinedList: React.FC<CombinedListProps> = ({
       <div
         ref={parentRef}
         className="h-full overflow-auto custom-scrollbar"
-        style={{ height: 'calc(100vh - 200px)' }}
       >
+        {/* Serendipity Widget - Only show on main "All" view with content */}
+        {!currentFolder && !currentTag && !showPinnedOnly && !searchQuery.trim() && (links.length > 0 || notes.length > 0) && (
+            <SerendipityWidget 
+                links={links} 
+                notes={notes} 
+                onQuickLook={handleQuickLook}
+            />
+        )}
         <div
           style={{
             height: `${rowVirtualizer.getTotalSize()}px`,
@@ -417,6 +454,7 @@ export const CombinedList: React.FC<CombinedListProps> = ({
                         onEdit={onEditLink}
                         index={itemIndex}
                         searchQuery={searchQuery}
+                        onQuickLook={() => handleQuickLook(link, 'link')}
                       />
                     );
                   } else {
@@ -432,6 +470,7 @@ export const CombinedList: React.FC<CombinedListProps> = ({
                         onEdit={onEditNote}
                         index={itemIndex}
                         searchQuery={searchQuery}
+                        onQuickLook={() => handleQuickLook(note, 'note')}
                       />
                     );
                   }
@@ -441,6 +480,15 @@ export const CombinedList: React.FC<CombinedListProps> = ({
           ))}
         </div>
       </div>
+
+       <QuickLookModal
+        isOpen={!!quickLookItem}
+        onClose={closeQuickLook}
+        item={quickLookItem?.item || null}
+        type={quickLookItem?.type || null}
+        folder={quickLookItem ? folderMap.get(quickLookItem.item.folderId) : undefined}
+        tags={quickLookItem ? getItemTags(quickLookItem.item.tagIds) : undefined}
+      />
     </div>
   );
 };

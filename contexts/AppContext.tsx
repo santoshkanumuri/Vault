@@ -15,6 +15,7 @@ interface AppContextType {
   notes: Note[];
   currentFolder: string | null;
   currentTag: string | null;
+  showPinnedOnly: boolean;
   searchQuery: string;
   darkMode: boolean;
   showMetadata: boolean;
@@ -26,6 +27,7 @@ interface AppContextType {
   recentlyCreatedIds: Set<string>;
   setCurrentFolder: (folderId: string | null) => void;
   setCurrentTag: (tagId: string | null) => void;
+  setShowPinnedOnly: (show: boolean) => void;
   setSearchQuery: (query: string) => void;
   toggleDarkMode: () => void;
   toggleMetadata: () => void;
@@ -68,6 +70,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [notes, setNotes] = useState<Note[]>([]);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [currentTag, setCurrentTag] = useState<string | null>(null);
+  const [showPinnedOnly, setShowPinnedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [darkMode, setDarkMode] = useState(false);
   const [showMetadata, setShowMetadata] = useState(true);
@@ -1213,6 +1216,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       notes,
       currentFolder,
       currentTag,
+      showPinnedOnly,
       searchQuery,
       darkMode,
       showMetadata,
@@ -1224,6 +1228,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       recentlyCreatedIds,
       setCurrentFolder,
       setCurrentTag,
+      setShowPinnedOnly,
       setSearchQuery,
       toggleDarkMode,
       toggleMetadata,

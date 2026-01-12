@@ -4,9 +4,18 @@ import React from 'react';
 import { cn } from '@/lib/utils';
 
 export const PREDEFINED_COLORS = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#FED766', '#247BA0', 
-  '#F07167', '#009FB7', '#6967CE', '#C62E65', '#F4A261',
-  '#E76F51', '#2A9D8F', '#264653', '#E9C46A', '#B565A7'
+  // Reds & Pinks
+  '#FF6B6B', '#E53E3E', '#FC8181', '#F56565', '#C62E65', '#ED64A6', '#D53F8C',
+  // Oranges & Yellows  
+  '#F4A261', '#E76F51', '#F07167', '#FED766', '#ECC94B', '#F6AD55', '#DD6B20',
+  // Greens
+  '#48BB78', '#38A169', '#2A9D8F', '#68D391', '#9AE6B4', '#276749',
+  // Blues & Cyans
+  '#4ECDC4', '#45B7D1', '#247BA0', '#009FB7', '#4299E1', '#3182CE', '#2B6CB0', '#0BC5EA',
+  // Purples & Violets
+  '#6967CE', '#805AD5', '#9F7AEA', '#B565A7', '#553C9A', '#6B46C1',
+  // Neutrals & Others
+  '#264653', '#4A5568', '#718096', '#A0AEC0', '#2D3748'
 ];
 
 interface ColorPickerProps {

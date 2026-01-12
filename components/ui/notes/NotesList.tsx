@@ -12,7 +12,8 @@ import { StickyNote, Search, FolderOpen, Plus, Sparkles, Loader2, ArrowUpDown } 
 import { Button } from '../button';
 import { BulkActions } from '../BulkActions';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { QuickLookModal } from '../QuickLookModal';
 
 interface NotesListProps {
   onEditNote: (note: Note) => void;
@@ -25,6 +26,34 @@ export const NotesList: React.FC<NotesListProps> = ({ onEditNote, onAddNote }) =
   const { notes, folders, tags, currentFolder, searchQuery, links, isLoadingMore, hasMoreNotes, loadMoreNotes, deleteNote } = useApp();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<SortOption>('newest');
+
+  // Quick Look State
+  const [quickLookItem, setQuickLookItem] = React.useState<Note | null>(null);
+
+  const handleQuickLook = useCallback((note: Note) => {
+    setQuickLookItem(note);
+  }, []);
+
+  const closeQuickLook = useCallback(() => {
+    setQuickLookItem(null);
+  }, []);
+
+  // Create stable lookup maps for folders and tags
+  const folderMap = useMemo(() => {
+    const map = new Map<string, any>();
+    folders.forEach(f => map.set(f.id, f));
+    return map;
+  }, [folders]);
+
+  const tagMap = useMemo(() => {
+    const map = new Map<string, any>();
+    tags.forEach(t => map.set(t.id, t));
+    return map;
+  }, [tags]);
+
+  const getItemTags = useCallback((tagIds: string[]) => {
+    return tagIds.map(id => tagMap.get(id)).filter((t): t is any => t !== undefined);
+  }, [tagMap]);
 
   const filteredNotes = useMemo(() => {
     let result = notes;
@@ -165,6 +194,7 @@ export const NotesList: React.FC<NotesListProps> = ({ onEditNote, onAddNote }) =
                         onEdit={onEditNote}
                         index={index}
                         searchQuery={searchQuery}
+                        onQuickLook={() => handleQuickLook(note)}
                       />
                     );
           })}
@@ -251,6 +281,7 @@ export const NotesList: React.FC<NotesListProps> = ({ onEditNote, onAddNote }) =
                         onEdit={onEditNote}
                         index={noteIndex}
                         searchQuery={searchQuery}
+                        onQuickLook={() => handleQuickLook(note)}
                       />
                     );
                 })}

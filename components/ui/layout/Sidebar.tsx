@@ -29,6 +29,7 @@ import {
   Shield,
   ChevronRight,
   Sparkles,
+  Pin,
 } from 'lucide-react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -112,8 +113,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
     notes,
     currentFolder, 
     currentTag,
+    showPinnedOnly,
     setCurrentFolder, 
     setCurrentTag,
+    setShowPinnedOnly,
     darkMode, 
     toggleDarkMode,
     deleteFolder,
@@ -150,12 +153,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
   const handleNavigation = (folderId: string | null) => {
     setCurrentFolder(folderId);
     setCurrentTag(null); // Clear tag filter when navigating to folder
+    setShowPinnedOnly(false); // Clear pinned filter
     onNavigate?.();
   };
 
   const handleTagClick = (tagId: string | null) => {
     setCurrentTag(tagId);
     setCurrentFolder(null); // Clear folder filter when filtering by tag
+    setShowPinnedOnly(false); // Clear pinned filter
+    onNavigate?.();
+  };
+
+  const handlePinnedClick = () => {
+    setShowPinnedOnly(!showPinnedOnly);
+    setCurrentFolder(null); // Clear folder filter
+    setCurrentTag(null); // Clear tag filter
     onNavigate?.();
   };
 
@@ -172,6 +184,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
   };
 
   const totalItems = links.length + notes.length;
+
+  const pinnedCount = links.filter(l => l.isPinned).length + notes.filter(n => n.isPinned).length;
 
   return (
     <div className="h-full bg-card/50 backdrop-blur-sm border-r border-border/50 flex flex-col">
@@ -253,21 +267,40 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.1 }}
+          className="space-y-1"
         >
           <Button
-            variant={currentFolder === null ? "secondary" : "ghost"}
-            className={`w-full justify-start gap-3 h-11 ${currentFolder === null ? 'bg-primary/10 text-primary hover:bg-primary/15' : ''}`}
+            variant={currentFolder === null && !currentTag && !showPinnedOnly ? "secondary" : "ghost"}
+            className={`w-full justify-start gap-3 h-11 ${currentFolder === null && !currentTag && !showPinnedOnly ? 'bg-primary/10 text-primary hover:bg-primary/15' : ''}`}
             onClick={() => handleNavigation(null)}
           >
             <Sparkles className="h-4 w-4" />
             <span className="flex-1 text-left">All Items</span>
             <Badge 
               variant="secondary" 
-              className={`ml-auto font-medium min-w-[1.5rem] justify-center ${currentFolder === null ? 'bg-primary/20 text-primary' : ''}`}
+              className={`ml-auto font-medium min-w-[1.5rem] justify-center ${currentFolder === null && !currentTag && !showPinnedOnly ? 'bg-primary/20 text-primary' : ''}`}
             >
               <AnimatedCounter value={totalItems} />
             </Badge>
           </Button>
+          
+          {/* Pinned Items */}
+          {pinnedCount > 0 && (
+            <Button
+              variant={showPinnedOnly ? "secondary" : "ghost"}
+              className={`w-full justify-start gap-3 h-10 ${showPinnedOnly ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/15' : 'hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400'}`}
+              onClick={handlePinnedClick}
+            >
+              <Pin className={`h-4 w-4 ${showPinnedOnly ? 'fill-current' : ''}`} />
+              <span className="flex-1 text-left">Pinned</span>
+              <Badge 
+                variant="secondary" 
+                className={`ml-auto font-medium min-w-[1.5rem] justify-center ${showPinnedOnly ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : ''}`}
+              >
+                <AnimatedCounter value={pinnedCount} />
+              </Badge>
+            </Button>
+          )}
         </motion.div>
 
         <Separator className="bg-border/50" />
@@ -322,7 +355,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
                     <span className="truncate flex-1 text-left text-sm">{folder.name}</span>
                     <Badge 
                       variant="secondary" 
-                      className={`ml-auto text-xs min-w-[1.25rem] justify-center ${currentFolder === folder.id ? 'bg-primary/20 text-primary' : ''}`}
+                      className="ml-auto text-xs min-w-[1.25rem] justify-center"
+                      style={{
+                        backgroundColor: `${folder.color}20`,
+                        color: folder.color
+                      }}
                     >
                       <AnimatedCounter value={getFolderItemCount(folder.id)} />
                     </Badge>
@@ -410,7 +447,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
                     <span className="truncate flex-1 text-left text-sm">{tag.name}</span>
                     <Badge 
                       variant="secondary" 
-                      className={`ml-auto text-xs min-w-[1.25rem] justify-center ${currentTag === tag.id ? 'bg-primary/20 text-primary' : ''}`}
+                      className="ml-auto text-xs min-w-[1.25rem] justify-center"
+                      style={{
+                        backgroundColor: `${tag.color}20`,
+                        color: tag.color
+                      }}
                     >
                       <AnimatedCounter value={getTagItemCount(tag.id)} />
                     </Badge>
