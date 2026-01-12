@@ -3,13 +3,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, X, Sparkles, Link as LinkIcon, FileText, Loader2, ChevronDown } from 'lucide-react';
+import { Search, X, Sparkles, Link as LinkIcon, FileText, Loader2, ChevronDown, Clock, Trash2 } from 'lucide-react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from './input';
 import { Button } from './button';
 import { Link, Note } from '@/lib/types';
 import { smartSearch } from '@/lib/utils/smart-search';
+import { getSearchHistory, saveSearchQuery, clearSearchHistory } from '@/lib/storage';
 
 interface SearchResult {
   type: 'link' | 'note';
@@ -35,6 +36,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'link' | 'note'>('all');
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   
   // Search result cache
@@ -44,6 +46,42 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
   const handleClose = () => {
     setIsOpen(false);
     onClose?.();
+  };
+
+  // Load search history on open
+  useEffect(() => {
+    if (isOpen) {
+      setSearchHistory(getSearchHistory());
+    }
+  }, [isOpen]);
+
+  // Save search query when selecting a result
+  const handleSelectResult = (result: SearchResult) => {
+    if (query.trim()) {
+      saveSearchQuery(query.trim());
+    }
+    if (result.type === 'link') {
+      const link = result.item as Link;
+      setCurrentFolder(link.folderId);
+      setSearchQuery(link.name);
+    } else {
+      const note = result.item as Note;
+      setCurrentFolder(note.folderId);
+      setSearchQuery(note.title);
+    }
+    setIsOpen(false);
+  };
+
+  // Handle selecting from history
+  const handleSelectHistory = (historyQuery: string) => {
+    setQuery(historyQuery);
+    setSelectedIndex(0);
+  };
+
+  // Clear search history
+  const handleClearHistory = () => {
+    clearSearchHistory();
+    setSearchHistory([]);
   };
 
   // Auto focus input on open
@@ -145,12 +183,24 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
         timestamp: Date.now(),
       });
       
-      // Clean old cache entries (keep only last 50)
-      if (searchCacheRef.current.size > 50) {
-        const entries = Array.from(searchCacheRef.current.entries());
-        entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
+      // Clean old cache entries - remove expired entries first, then keep last 50
+      const now = Date.now();
+      const entries = Array.from(searchCacheRef.current.entries());
+      
+      // Filter out expired entries (TTL expired)
+      const validEntries = entries.filter(([_, value]) => now - value.timestamp < CACHE_TTL);
+      
+      // If still over limit, keep only most recent 50
+      if (validEntries.length > 50) {
+        validEntries.sort((a, b) => b[1].timestamp - a[1].timestamp);
         searchCacheRef.current.clear();
-        entries.slice(0, 50).forEach(([key, value]) => {
+        validEntries.slice(0, 50).forEach(([key, value]) => {
+          searchCacheRef.current.set(key, value);
+        });
+      } else if (validEntries.length < entries.length) {
+        // Some entries were expired, rebuild the cache
+        searchCacheRef.current.clear();
+        validEntries.forEach(([key, value]) => {
           searchCacheRef.current.set(key, value);
         });
       }
@@ -204,19 +254,6 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, results, selectedIndex]);
-
-  const handleSelectResult = (result: SearchResult) => {
-    if (result.type === 'link') {
-      const link = result.item as Link;
-      setCurrentFolder(link.folderId);
-      setSearchQuery(link.name);
-    } else {
-      const note = result.item as Note;
-      setCurrentFolder(note.folderId);
-      setSearchQuery(note.title);
-    }
-    setIsOpen(false);
-  };
 
   const getResultIcon = (type: 'link' | 'note') => {
     return type === 'link' ? (
@@ -317,10 +354,40 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ initialQuery = '', onC
                     <p className="text-xs text-muted-foreground/70 mt-1">Try different keywords</p>
                   </div>
                 ) : results.length === 0 && !query.trim() ? (
-                  <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-                    <Search className="h-10 w-10 text-muted-foreground/50 mb-3" />
-                    <p className="text-sm text-muted-foreground">Search your content</p>
-                    <p className="text-xs text-muted-foreground/70 mt-1">Type to find links and notes</p>
+                  <div className="py-2">
+                    {searchHistory.length > 0 ? (
+                      <>
+                        <div className="flex items-center justify-between px-3 sm:px-4 py-2">
+                          <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                            <Clock className="h-3 w-3" />
+                            Recent searches
+                          </span>
+                          <button
+                            onClick={handleClearHistory}
+                            className="text-xs text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Clear
+                          </button>
+                        </div>
+                        {searchHistory.slice(0, 8).map((historyItem, index) => (
+                          <button
+                            key={`history-${index}`}
+                            onClick={() => handleSelectHistory(historyItem)}
+                            className="w-full text-left px-3 sm:px-4 py-2.5 flex items-center gap-3 hover:bg-muted/50 transition-colors"
+                          >
+                            <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <span className="text-sm truncate">{historyItem}</span>
+                          </button>
+                        ))}
+                      </>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                        <Search className="h-10 w-10 text-muted-foreground/50 mb-3" />
+                        <p className="text-sm text-muted-foreground">Search your content</p>
+                        <p className="text-xs text-muted-foreground/70 mt-1">Type to find links and notes</p>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="py-2">

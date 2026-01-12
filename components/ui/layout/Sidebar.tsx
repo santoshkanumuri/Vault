@@ -111,7 +111,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
     links,
     notes,
     currentFolder, 
+    currentTag,
     setCurrentFolder, 
+    setCurrentTag,
     darkMode, 
     toggleDarkMode,
     deleteFolder,
@@ -147,6 +149,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
 
   const handleNavigation = (folderId: string | null) => {
     setCurrentFolder(folderId);
+    setCurrentTag(null); // Clear tag filter when navigating to folder
+    onNavigate?.();
+  };
+
+  const handleTagClick = (tagId: string | null) => {
+    setCurrentTag(tagId);
+    setCurrentFolder(null); // Clear folder filter when filtering by tag
     onNavigate?.();
   };
 
@@ -383,52 +392,57 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
               {tags.filter(tag => tag && tag.id).map((tag, index) => (
                 <motion.div 
                   key={tag.id} 
-                  className="group flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-muted/50 transition-colors"
+                  className="group flex items-center"
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -10 }}
                   transition={{ ...springConfig, delay: index * 0.02 }}
                 >
-                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                  <Button
+                    variant={currentTag === tag.id ? "secondary" : "ghost"}
+                    className={`flex-1 justify-start gap-2.5 h-10 ${currentTag === tag.id ? 'bg-primary/10 text-primary hover:bg-primary/15' : ''}`}
+                    onClick={() => handleTagClick(tag.id)}
+                  >
                     <div
                       className="h-2.5 w-2.5 rounded-full flex-shrink-0"
                       style={{ backgroundColor: tag.color }}
                     />
-                    <span className="truncate text-sm">{tag.name}</span>
-                  </div>
-                  
-                  <div className="flex items-center gap-1">
-                    <Badge variant="secondary" className="text-xs min-w-[1.25rem] justify-center">
+                    <span className="truncate flex-1 text-left text-sm">{tag.name}</span>
+                    <Badge 
+                      variant="secondary" 
+                      className={`ml-auto text-xs min-w-[1.25rem] justify-center ${currentTag === tag.id ? 'bg-primary/20 text-primary' : ''}`}
+                    >
                       <AnimatedCounter value={getTagItemCount(tag.id)} />
                     </Badge>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0"
-                        >
-                          <MoreHorizontal className="h-3 w-3" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-36">
-                        <DropdownMenuItem onClick={() => {
-                          setEditingTag(tag);
-                          setIsTagDialogOpen(true);
-                        }} className="gap-2">
-                          <Edit className="h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem 
-                          onClick={() => handleDeleteTag(tag.id)}
-                          className="text-destructive gap-2"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                  </Button>
+                  
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 p-0 ml-1"
+                      >
+                        <MoreHorizontal className="h-3 w-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-36">
+                      <DropdownMenuItem onClick={() => {
+                        setEditingTag(tag);
+                        setIsTagDialogOpen(true);
+                      }} className="gap-2">
+                        <Edit className="h-4 w-4" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        onClick={() => handleDeleteTag(tag.id)}
+                        className="text-destructive gap-2"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </motion.div>
               ))}
             </AnimatePresence>

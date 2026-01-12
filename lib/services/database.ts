@@ -378,6 +378,7 @@ export const getLinks = async (
       createdAt: link.created_at,
       embedding: link.embedding || undefined,
       wordCount: link.word_count || undefined,
+      isPinned: link.is_pinned || false,
     }));
 
     return {
@@ -461,6 +462,7 @@ export const createLink = async (
       author: data.author || undefined,
       tagIds,
       createdAt: data.created_at,
+      isPinned: data.is_pinned || false,
     };
   } catch (error: any) {
     logger.error('createLink: Failed', { 
@@ -577,30 +579,55 @@ export const updateLink = async (
 
     logger.debug('updateLink: Link updated, updating tags', { id });
 
-    // Update tag associations atomically
-    // Delete existing tags first
-    const { error: deleteTagsError } = await client
+    // Get existing tags to compare
+    const { data: existingTagsData, error: existingTagsError } = await client
       .from('link_tags')
-      .delete()
+      .select('tag_id')
       .eq('link_id', id);
 
-    if (deleteTagsError) {
-      throw handleSupabaseError('updateLink (delete tags)', deleteTagsError, { id });
+    if (existingTagsError) {
+      throw handleSupabaseError('updateLink (get existing tags)', existingTagsError, { id });
     }
 
-    // Insert new tags if any
-    if (tagIds.length > 0) {
-      const { error: insertTagsError } = await client
-        .from('link_tags')
-        .insert(
-          tagIds.map(tagId => ({
-            link_id: id,
-            tag_id: tagId,
-          }))
-        );
+    const existingTagIds = existingTagsData?.map(t => t.tag_id) || [];
+    const newTagIds = tagIds;
 
-      if (insertTagsError) {
-        throw handleSupabaseError('updateLink (insert tags)', insertTagsError, { id });
+    // Check if tags actually changed
+    const tagsChanged = existingTagIds.length !== newTagIds.length ||
+      !existingTagIds.every(id => newTagIds.includes(id));
+
+    if (tagsChanged) {
+      // Only delete tags that were removed
+      const tagsToRemove = existingTagIds.filter(id => !newTagIds.includes(id));
+      const tagsToAdd = newTagIds.filter(id => !existingTagIds.includes(id));
+
+      // Delete removed tags
+      if (tagsToRemove.length > 0) {
+        const { error: deleteTagsError } = await client
+          .from('link_tags')
+          .delete()
+          .eq('link_id', id)
+          .in('tag_id', tagsToRemove);
+
+        if (deleteTagsError) {
+          throw handleSupabaseError('updateLink (delete tags)', deleteTagsError, { id });
+        }
+      }
+
+      // Insert new tags
+      if (tagsToAdd.length > 0) {
+        const { error: insertTagsError } = await client
+          .from('link_tags')
+          .insert(
+            tagsToAdd.map(tagId => ({
+              link_id: id,
+              tag_id: tagId,
+            }))
+          );
+
+        if (insertTagsError) {
+          throw handleSupabaseError('updateLink (insert tags)', insertTagsError, { id });
+        }
       }
     }
 
@@ -683,6 +710,7 @@ export const getNotes = async (
         .map((nt: any) => nt.tag_id),
       createdAt: note.created_at,
       userId: note.user_id,
+      isPinned: note.is_pinned || false,
     }));
 
     return {
@@ -749,6 +777,7 @@ export const createNote = async (
       tagIds,
       createdAt: noteData.created_at,
       userId: noteData.user_id,
+      isPinned: noteData.is_pinned || false,
     };
   } catch (error: any) {
     logger.error('createNote: Failed', { 
@@ -781,26 +810,50 @@ export const updateNote = async (
 
     if (noteError) throw noteError;
 
-    // Delete existing tag relations
-    const { error: deleteTagError } = await client
+    // Get existing tags to compare
+    const { data: existingTagsData, error: existingTagsError } = await client
       .from('note_tags')
-      .delete()
+      .select('tag_id')
       .eq('note_id', id);
 
-    if (deleteTagError) throw deleteTagError;
+    if (existingTagsError) throw existingTagsError;
 
-    // Add new tag relations if any
-    if (tagIds.length > 0) {
-      const tagRelations = tagIds.map(tagId => ({
-        note_id: id,
-        tag_id: tagId,
-      }));
+    const existingTagIds = existingTagsData?.map(t => t.tag_id) || [];
+    const newTagIds = tagIds;
 
-      const { error: tagError } = await client
-        .from('note_tags')
-        .insert(tagRelations);
+    // Check if tags actually changed
+    const tagsChanged = existingTagIds.length !== newTagIds.length ||
+      !existingTagIds.every(tagId => newTagIds.includes(tagId));
 
-      if (tagError) throw tagError;
+    if (tagsChanged) {
+      // Only delete tags that were removed
+      const tagsToRemove = existingTagIds.filter(tagId => !newTagIds.includes(tagId));
+      const tagsToAdd = newTagIds.filter(tagId => !existingTagIds.includes(tagId));
+
+      // Delete removed tags
+      if (tagsToRemove.length > 0) {
+        const { error: deleteTagError } = await client
+          .from('note_tags')
+          .delete()
+          .eq('note_id', id)
+          .in('tag_id', tagsToRemove);
+
+        if (deleteTagError) throw deleteTagError;
+      }
+
+      // Add new tags
+      if (tagsToAdd.length > 0) {
+        const tagRelations = tagsToAdd.map(tagId => ({
+          note_id: id,
+          tag_id: tagId,
+        }));
+
+        const { error: tagError } = await client
+          .from('note_tags')
+          .insert(tagRelations);
+
+        if (tagError) throw tagError;
+      }
     }
   } catch (error: any) {
     logger.error('updateNote: Failed', { 
@@ -1043,6 +1096,44 @@ export const updateNoteEmbeddings = async (
       noteId, 
       error: error.message 
     }, error);
+    throw error;
+  }
+};
+
+// Update link pinned status
+export const updateLinkPinned = async (linkId: string, isPinned: boolean): Promise<void> => {
+  const client = requireSupabase();
+  
+  try {
+    const { error } = await client
+      .from('links')
+      .update({ is_pinned: isPinned })
+      .eq('id', linkId);
+    
+    if (error) throw handleSupabaseError('updateLinkPinned', error, { linkId, isPinned });
+    
+    logger.debug('updateLinkPinned: Success', { linkId, isPinned });
+  } catch (error: any) {
+    logger.error('updateLinkPinned: FAILED', { linkId, error: error.message }, error);
+    throw error;
+  }
+};
+
+// Update note pinned status
+export const updateNotePinned = async (noteId: string, isPinned: boolean): Promise<void> => {
+  const client = requireSupabase();
+  
+  try {
+    const { error } = await client
+      .from('notes')
+      .update({ is_pinned: isPinned })
+      .eq('id', noteId);
+    
+    if (error) throw handleSupabaseError('updateNotePinned', error, { noteId, isPinned });
+    
+    logger.debug('updateNotePinned: Success', { noteId, isPinned });
+  } catch (error: any) {
+    logger.error('updateNotePinned: FAILED', { noteId, error: error.message }, error);
     throw error;
   }
 };

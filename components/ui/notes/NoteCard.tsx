@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, memo, useRef, useCallback, useEffect } from 'react';
-import { motion, useMotionValue, useTransform, useAnimation, PanInfo } from 'framer-motion';
+import { motion, useMotionValue, useTransform, useAnimation, PanInfo, AnimatePresence } from 'framer-motion';
 import {
   Card,
   CardContent,
@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, Edit, Trash2, StickyNote, Calendar, Brain, Sparkles, Loader2, AlertCircle, Undo2 } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2, StickyNote, Calendar, Brain, Sparkles, Loader2, AlertCircle, Undo2, Check, Pin } from 'lucide-react';
 import { Note, Folder, Tag } from '@/lib/types';
 import { useApp } from '@/contexts/AppContext';
 import { useToast } from '@/hooks/use-toast';
@@ -32,6 +32,9 @@ interface NoteCardProps {
   onEdit: (note: Note) => void;
   index?: number;
   searchQuery?: string;
+  isSelectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }
 
 // Custom comparison function for React.memo - only re-render when relevant props change
@@ -43,7 +46,8 @@ const arePropsEqual = (
   if (prevProps.note.id !== nextProps.note.id ||
       prevProps.note.title !== nextProps.note.title ||
       prevProps.note.content !== nextProps.note.content ||
-      prevProps.note.folderId !== nextProps.note.folderId) {
+      prevProps.note.folderId !== nextProps.note.folderId ||
+      prevProps.note.isPinned !== nextProps.note.isPinned) {
     return false;
   }
   
@@ -77,7 +81,9 @@ const arePropsEqual = (
   
   // Check other props
   if (prevProps.index !== nextProps.index ||
-      prevProps.searchQuery !== nextProps.searchQuery) {
+      prevProps.searchQuery !== nextProps.searchQuery ||
+      prevProps.isSelectionMode !== nextProps.isSelectionMode ||
+      prevProps.isSelected !== nextProps.isSelected) {
     return false;
   }
   
@@ -92,8 +98,11 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
   onEdit,
   index = 0,
   searchQuery = '',
+  isSelectionMode = false,
+  isSelected = false,
+  onToggleSelect,
 }) => {
-  const { deleteNote, refreshNoteContent, recentlyCreatedIds } = useApp();
+  const { deleteNote, refreshNoteContent, recentlyCreatedIds, togglePinNote } = useApp();
   const { toast } = useToast();
   const [isHovered, setIsHovered] = useState(false);
   const [isUpdatingContent, setIsUpdatingContent] = useState(false);
@@ -192,6 +201,26 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
       });
     } finally {
       setIsUpdatingContent(false);
+    }
+  };
+
+  const handleTogglePin = async () => {
+    const willBePinned = !note.isPinned;
+    try {
+      await togglePinNote(note.id);
+      toast({
+        title: willBePinned ? "📌 Pinned to top" : "Unpinned",
+        description: willBePinned 
+          ? `"${note.title.slice(0, 30)}${note.title.length > 30 ? '...' : ''}" will now appear at the top.`
+          : `"${note.title.slice(0, 30)}${note.title.length > 30 ? '...' : ''}" returned to regular order.`,
+        duration: 2000,
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to update pin",
+        description: "Could not update pin status. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -296,13 +325,31 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
           />
         )}
         <Card 
-          className={`group overflow-hidden border-border/50 hover:border-primary/30 transition-all duration-200 hover:shadow-lg dark:hover:shadow-primary/5 cursor-pointer ${isNew ? 'ring-2 ring-amber-500/50 shadow-lg shadow-amber-500/10' : ''}`}
+          className={`group overflow-hidden border-border/50 hover:border-primary/30 transition-all duration-200 hover:shadow-lg dark:hover:shadow-primary/5 cursor-pointer ${isNew ? 'ring-2 ring-amber-500/50 shadow-lg shadow-amber-500/10' : ''} ${isSelected ? 'ring-2 ring-primary border-primary' : ''} ${note.isPinned ? 'border-amber-500/50 dark:border-amber-400/40 ring-1 ring-amber-500/30' : ''}`}
           style={getCardGradient()}
-          onClick={() => onEdit(note)}
+          onClick={isSelectionMode ? onToggleSelect : () => onEdit(note)}
         >
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              {/* Selection checkbox - shown in selection mode */}
+              {isSelectionMode && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleSelect?.();
+                  }}
+                  className="flex-shrink-0"
+                >
+                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                    isSelected 
+                      ? 'bg-primary border-primary' 
+                      : 'border-muted-foreground/30 hover:border-primary'
+                  }`}>
+                    {isSelected && <Check className="w-3 h-3 text-primary-foreground" />}
+                  </div>
+                </button>
+              )}
               <div
                 className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center relative transition-transform duration-200 hover:scale-110 hover:-rotate-3"
               >
@@ -330,6 +377,19 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
               <CardTitle className="text-base line-clamp-1 break-words">
                 {note.title}
               </CardTitle>
+              {/* Pinned indicator with animation */}
+              <AnimatePresence>
+                {note.isPinned && (
+                  <motion.div
+                    initial={{ scale: 0, rotate: -45 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    exit={{ scale: 0, rotate: 45 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+                  >
+                    <Pin className="h-4 w-4 flex-shrink-0 text-amber-500 dark:text-amber-400 fill-current" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
@@ -345,6 +405,13 @@ const NoteCardComponent: React.FC<NoteCardProps> = ({
                 <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onEdit(note); }} className="gap-2">
                   <Edit className="h-4 w-4" />
                   Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={(e) => { e.stopPropagation(); handleTogglePin(); }} 
+                  className="gap-2"
+                >
+                  <Pin className={`h-4 w-4 ${note.isPinned ? 'fill-current text-amber-500' : ''}`} />
+                  {note.isPinned ? 'Unpin' : 'Pin to Top'}
                 </DropdownMenuItem>
                 <DropdownMenuItem 
                   onClick={(e) => { e.stopPropagation(); handleUpdateContent(); }} 

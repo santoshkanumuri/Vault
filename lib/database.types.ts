@@ -127,6 +127,108 @@ export interface Database {
           tag_id?: string
         }
       }
+      notes: {
+        Row: {
+          id: string
+          title: string
+          content: string
+          folder_id: string
+          user_id: string
+          embedding: number[] | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          content: string
+          folder_id: string
+          user_id: string
+          embedding?: number[] | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          content?: string
+          folder_id?: string
+          user_id?: string
+          embedding?: number[] | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      note_tags: {
+        Row: {
+          note_id: string
+          tag_id: string
+        }
+        Insert: {
+          note_id: string
+          tag_id: string
+        }
+        Update: {
+          note_id?: string
+          tag_id?: string
+        }
+      }
+      background_tasks: {
+        Row: {
+          id: string
+          user_id: string
+          task_type: string
+          entity_type: string
+          entity_id: string
+          status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
+          priority: number
+          payload: Json | null
+          result: Json | null
+          error_message: string | null
+          retry_count: number
+          max_retries: number
+          started_at: string | null
+          completed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          task_type: string
+          entity_type: string
+          entity_id: string
+          status?: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
+          priority?: number
+          payload?: Json | null
+          result?: Json | null
+          error_message?: string | null
+          retry_count?: number
+          max_retries?: number
+          started_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          task_type?: string
+          entity_type?: string
+          entity_id?: string
+          status?: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
+          priority?: number
+          payload?: Json | null
+          result?: Json | null
+          error_message?: string | null
+          retry_count?: number
+          max_retries?: number
+          started_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never

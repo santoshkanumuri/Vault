@@ -5,6 +5,7 @@ import { LinkCard } from '../links/LinkCard';
 import { NoteCard } from '../notes/NoteCard';
 import { searchAll } from '@/lib/utils/search';
 import { useApp } from '@/contexts/AppContext';
+import { useSelection } from '@/contexts/SelectionContext';
 import { Link, Note } from '@/lib/types';
 
 interface CombinedListProps {
@@ -14,13 +15,14 @@ interface CombinedListProps {
 
 export const CombinedList: React.FC<CombinedListProps> = ({ onEditLink, onEditNote }) => {
   const { links, notes, folders, tags, currentFolder, searchQuery } = useApp();
+  const { isSelectionMode, toggleSelection, isSelected } = useSelection();
 
   const filteredResults = useMemo(() => {
     if (!searchQuery.trim()) {
       // If no search query, show all items sorted by date
       const allItems = [
-        ...links.map(link => ({ type: 'link' as const, item: link, createdAt: link.createdAt })),
-        ...notes.map(note => ({ type: 'note' as const, item: note, createdAt: note.createdAt }))
+        ...links.map(link => ({ type: 'link' as const, item: link, createdAt: link.createdAt, isPinned: link.isPinned || false })),
+        ...notes.map(note => ({ type: 'note' as const, item: note, createdAt: note.createdAt, isPinned: note.isPinned || false }))
       ];
 
       let result = allItems;
@@ -36,8 +38,14 @@ export const CombinedList: React.FC<CombinedListProps> = ({ onEditLink, onEditNo
         });
       }
 
-      // Sort by creation date (newest first)
-      return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      // Sort: pinned first, then by creation date (newest first)
+      return result.sort((a, b) => {
+        // Pinned items come first
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        // Then sort by date
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
     } else {
       // Use search functionality
       let linksToSearch = links;
@@ -53,7 +61,8 @@ export const CombinedList: React.FC<CombinedListProps> = ({ onEditLink, onEditNo
       return searchResults.map(result => ({
         type: result.type,
         item: result.item,
-        createdAt: result.type === 'link' ? (result.item as Link).createdAt : (result.item as Note).createdAt
+        createdAt: result.type === 'link' ? (result.item as Link).createdAt : (result.item as Note).createdAt,
+        isPinned: result.type === 'link' ? (result.item as Link).isPinned || false : (result.item as Note).isPinned || false
       }));
     }
   }, [links, notes, folders, tags, currentFolder, searchQuery]);
@@ -94,6 +103,9 @@ export const CombinedList: React.FC<CombinedListProps> = ({ onEditLink, onEditNo
               folder={folder}
               tags={linkTags}
               onEdit={onEditLink}
+              isSelectionMode={isSelectionMode}
+              isSelected={isSelected(link.id)}
+              onToggleSelect={() => toggleSelection(link.id, 'link')}
             />
           );
         } else {
@@ -107,6 +119,9 @@ export const CombinedList: React.FC<CombinedListProps> = ({ onEditLink, onEditNo
               folder={folder}
               tags={noteTags}
               onEdit={onEditNote}
+              isSelectionMode={isSelectionMode}
+              isSelected={isSelected(note.id)}
+              onToggleSelect={() => toggleSelection(note.id, 'note')}
             />
           );
         }

@@ -63,6 +63,8 @@ export interface Link {
   wordCount?: number;
   embedding?: number[] | string; // Can be array or string (pgvector format)
   chunks?: TextChunk[];
+  // Pinned/favorites feature
+  isPinned?: boolean;
 }
 
 export interface Note {
@@ -76,6 +78,8 @@ export interface Note {
   // New fields for semantic search
   chunks?: TextChunk[];
   embedding?: number[] | string; // Can be array or string (pgvector format)
+  // Pinned/favorites feature
+  isPinned?: boolean;
 }
 
 export interface AuthState {

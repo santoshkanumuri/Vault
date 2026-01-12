@@ -14,6 +14,7 @@ interface AppContextType {
   links: Link[];
   notes: Note[];
   currentFolder: string | null;
+  currentTag: string | null;
   searchQuery: string;
   darkMode: boolean;
   showMetadata: boolean;
@@ -24,6 +25,7 @@ interface AppContextType {
   linkStatuses: Map<string, LinkStatus>;
   recentlyCreatedIds: Set<string>;
   setCurrentFolder: (folderId: string | null) => void;
+  setCurrentTag: (tagId: string | null) => void;
   setSearchQuery: (query: string) => void;
   toggleDarkMode: () => void;
   toggleMetadata: () => void;
@@ -39,10 +41,13 @@ interface AppContextType {
   updateLink: (id: string, name: string, url: string, description: string, folderId: string, tagIds: string[]) => Promise<void>;
   deleteLink: (id: string) => Promise<void>;
   refreshLinkMetadata: (id: string) => Promise<void>;
+  togglePinLink: (id: string) => Promise<void>;
   createNote: (title: string, content: string, folderId: string, tagIds: string[]) => Promise<Note>;
   updateNote: (id: string, title: string, content: string, folderId: string, tagIds: string[]) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   refreshNoteContent: (id: string) => Promise<void>;
+  togglePinNote: (id: string) => Promise<void>;
+  checkDuplicateUrl: (url: string) => Link | undefined;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -62,6 +67,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [links, setLinks] = useState<Link[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
+  const [currentTag, setCurrentTag] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [darkMode, setDarkMode] = useState(false);
   const [showMetadata, setShowMetadata] = useState(true);
@@ -77,7 +83,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Debug logging
   useEffect(() => {
     if (user) {
-      console.log('AppContext: User authenticated', { userId: user.id });
+      logger.debug('AppContext: User authenticated', { userId: user.id });
     }
   }, [user]);
 
@@ -283,14 +289,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user) return;
 
     try {
-      console.log('Creating default folder...');
+      logger.info('Creating default folder...');
       const created = await db.createFolder('General', '#6366f1', user.id);
       if (created) {
-        console.log('Default folder created:', created);
+        logger.info('Default folder created:', { folder: created });
         setFolders([created]);
       }
     } catch (error) {
-      console.error('Error creating default folder:', error);
+      logger.error('Error creating default folder:', { error });
     }
   };
 
@@ -316,41 +322,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createFolder = async (name: string, color: string): Promise<Folder> => {
     if (!user) {
-      console.error('createFolder: User not authenticated');
+      logger.error('createFolder: User not authenticated');
       throw new Error('User not authenticated');
     }
 
     try {
-      console.log('createFolder: Creating folder in Supabase...', { name, color, userId: user.id });
+      logger.debug('createFolder: Creating folder in Supabase...', { name, color, userId: user.id });
       const folder = await db.createFolder(name, color, user.id);
       if (!folder) {
-        console.error('createFolder: Database returned null');
+        logger.error('createFolder: Database returned null');
         throw new Error('Folder creation failed in database');
       }
-      console.log('createFolder: Success, folder:', folder);
+      logger.debug('createFolder: Success, folder:', { folder });
       setFolders(prev => [...prev, folder]);
       return folder;
     } catch (error) {
-      console.error('Error creating folder:', error);
+      logger.error('Error creating folder:', { error });
       throw error;
     }
   };
 
   const updateFolder = async (id: string, name: string) => {
     try {
-      console.log('updateFolder: Updating folder...', { id, name });
+      logger.debug('updateFolder: Updating folder...', { id, name });
       await db.updateFolder(id, name);
       setFolders(prev => prev.map(f => f.id === id ? { ...f, name } : f));
-      console.log('updateFolder: Success');
+      logger.debug('updateFolder: Success');
     } catch (error) {
-      console.error('Error updating folder:', error);
+      logger.error('Error updating folder:', { error });
       throw error;
     }
   };
 
   const deleteFolder = async (id: string) => {
     try {
-      console.log('deleteFolder: Deleting folder...', { id });
+      logger.debug('deleteFolder: Deleting folder...', { id });
       await db.deleteFolder(id);
 
       // Update local state
@@ -361,50 +367,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (currentFolder === id) {
         setCurrentFolder(null);
       }
-      console.log('deleteFolder: Success');
+      logger.debug('deleteFolder: Success');
     } catch (error) {
-      console.error('Error deleting folder:', error);
+      logger.error('Error deleting folder:', { error });
       throw error;
     }
   };
 
   const createTag = async (name: string, color: string): Promise<Tag> => {
     if (!user) {
-      console.error('createTag: User not authenticated');
+      logger.error('createTag: User not authenticated');
       throw new Error('User not authenticated');
     }
 
     try {
-      console.log('createTag: Creating tag in Supabase...', { name, color, userId: user.id });
+      logger.debug('createTag: Creating tag in Supabase...', { name, color, userId: user.id });
       const tag = await db.createTag(name, color, user.id);
       if (!tag) {
-        console.error('createTag: Database returned null');
+        logger.error('createTag: Database returned null');
         throw new Error('Tag creation failed in database');
       }
-      console.log('createTag: Success, tag:', tag);
+      logger.debug('createTag: Success, tag:', { tag });
       setTags(prev => [...prev, tag]);
       return tag;
     } catch (error) {
-      console.error('Error creating tag:', error);
+      logger.error('Error creating tag:', { error });
       throw error;
     }
   };
 
   const updateTag = async (id: string, name: string, color: string) => {
     try {
-      console.log('updateTag: Updating tag...', { id, name, color });
+      logger.debug('updateTag: Updating tag...', { id, name, color });
       await db.updateTag(id, name, color);
       setTags(prev => prev.map(t => t.id === id ? { ...t, name, color } : t));
-      console.log('updateTag: Success');
+      logger.debug('updateTag: Success');
     } catch (error) {
-      console.error('Error updating tag:', error);
+      logger.error('Error updating tag:', { error });
       throw error;
     }
   };
 
   const deleteTag = async (id: string) => {
     try {
-      console.log('deleteTag: Deleting tag...', { id });
+      logger.debug('deleteTag: Deleting tag...', { id });
       await db.deleteTag(id);
 
       // Update local state
@@ -417,9 +423,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...n,
         tagIds: n.tagIds.filter(tagId => tagId !== id)
       })));
-      console.log('deleteTag: Success');
+      logger.debug('deleteTag: Success');
     } catch (error) {
-      console.error('Error deleting tag:', error);
+      logger.error('Error deleting tag:', { error });
       throw error;
     }
   };
@@ -446,18 +452,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const createLink = async (name: string, url: string, description: string, folderId: string, tagIds: string[]): Promise<Link> => {
     if (!user) {
       const error = new Error('User not authenticated');
-      console.error('createLink: User not authenticated');
+      logger.error('createLink: User not authenticated');
       throw error;
     }
 
     // Note: Removed global setIsLoading(true) to prevent UI freeze/skeleton flash
     // The link is added optimistically to state immediately after DB creation
-    console.log('createLink: Starting...', { name, url, folderId, tagCount: tagIds.length });
+    logger.debug('createLink: Starting...', { name, url, folderId, tagCount: tagIds.length });
     
     try {
       // Create the link IMMEDIATELY with minimal data - don't wait for metadata
       // This makes the UI responsive right away
-      console.log('createLink: Creating link in database...');
+      logger.debug('createLink: Creating link in database...');
       
       const linkData = {
         name: name || 'Untitled Link',
@@ -488,21 +494,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         dbTimeout
       ]);
       
-      console.log('createLink: Database call returned', { link });
+      logger.debug('createLink: Database call returned', { link });
       
       if (!link) {
         const error = new Error('Link creation failed in database - null returned');
-        console.error('createLink: Failed - null link returned');
+        logger.error('createLink: Failed - null link returned');
         throw error;
       }
       
-      console.log('createLink: Success! Link created:', link.id);
+      logger.debug('createLink: Success! Link created:', { linkId: link.id });
       // Optimistically add link to state immediately - no loading state change
       setLinks(prev => {
-        console.log('createLink: Adding link to state, current count:', prev.length);
+        logger.debug('createLink: Adding link to state, current count:', { count: prev.length });
         return [link, ...prev]; // Add to beginning for immediate visibility
       });
-      console.log('createLink: Link added to state optimistically');
+      logger.debug('createLink: Link added to state optimistically');
       
       // Mark as recently created for animation
       setRecentlyCreatedIds(prev => new Set(prev).add(link.id));
@@ -561,7 +567,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   : l
               ));
               
-              console.log('createLink: Metadata updated in background', { linkId: link.id });
+              logger.debug('createLink: Metadata updated in background', { linkId: link.id });
             }
           } catch (err: any) {
             // Silently fail - metadata fetch is optional
@@ -589,7 +595,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       
       return link;
     } catch (error) {
-      console.error('Error creating link:', error);
+      logger.error('Error creating link:', { error });
       // No loading state to reset - operation failed but UI stays responsive
       throw error;
     }
@@ -723,7 +729,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // If URL changed, fetch new basic metadata (with timeout)
       if (urlChanged) {
-        console.log('updateLink: URL changed, fetching new metadata...');
+        logger.debug('updateLink: URL changed, fetching new metadata...');
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -756,7 +762,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         metadata
       };
 
-      console.log('updateLink: Updating link in Supabase...', { id, linkData });
+      logger.debug('updateLink: Updating link in Supabase...', { id, linkData });
       
       // Database operation with timeout
       const dbTimeout = new Promise<never>((_, reject) => {
@@ -765,7 +771,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       
       // Optimistically update state BEFORE database call for instant UI feedback
       setLinks(prev => prev.map(l => l.id === id ? { ...l, ...linkData } : l));
-      console.log('updateLink: State updated optimistically');
+      logger.debug('updateLink: State updated optimistically');
       
       // Now persist to database (non-blocking from UI perspective)
       await Promise.race([
@@ -781,7 +787,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ),
         dbTimeout
       ]);
-      console.log('updateLink: Database updated');
+      logger.debug('updateLink: Database updated');
       
       // If URL changed, queue re-processing tasks
       if (urlChanged) {
@@ -808,13 +814,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteLink = async (id: string) => {
     // Don't use global loading for quick delete operations
     try {
-      console.log('deleteLink: Deleting link...', { id });
+      logger.debug('deleteLink: Deleting link...', { id });
       // Optimistically update UI first
       setLinks(prev => prev.filter(l => l.id !== id));
       await db.deleteLink(id);
-      console.log('deleteLink: Success');
+      logger.debug('deleteLink: Success');
     } catch (error) {
-      console.error('Error deleting link:', error);
+      logger.error('Error deleting link:', { error });
       // Rollback: reload data on error
       if (user) loadData();
       throw error;
@@ -827,7 +833,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Don't use global loading - this runs in background
     try {
-      console.log('refreshLinkMetadata: Fetching metadata...', { url: link.url });
+      logger.debug('refreshLinkMetadata: Fetching metadata...', { url: link.url });
       
       // Fetch metadata with timeout
       const controller = new AbortController();
@@ -849,7 +855,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         metadata
       };
 
-      console.log('refreshLinkMetadata: Updating link...', { id, updatedData });
+      logger.debug('refreshLinkMetadata: Updating link...', { id, updatedData });
       await db.updateLink(
         id,
         metadata.title || link.name,
@@ -868,7 +874,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ].filter(Boolean).join(' ').trim();
       
       if (textToEmbed.length >= 10) {
-        console.log('refreshLinkMetadata: Generating embeddings...', { id, textLength: textToEmbed.length });
+        logger.debug('refreshLinkMetadata: Generating embeddings...', { id, textLength: textToEmbed.length });
         
         try {
           const embeddingResponse = await fetch('/api/embeddings', {
@@ -900,7 +906,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     }
                   : l
               ));
-              console.log('refreshLinkMetadata: Embeddings saved', { id });
+              logger.debug('refreshLinkMetadata: Embeddings saved', { id });
               return;
             }
           }
@@ -923,9 +929,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           : l
       ));
-      console.log('refreshLinkMetadata: Success');
+      logger.debug('refreshLinkMetadata: Success');
     } catch (error) {
-      console.error('Failed to refresh metadata:', error);
+      logger.error('Failed to refresh metadata:', { error });
       throw error;
     }
   };
@@ -959,7 +965,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Note: Removed global setIsLoading(true) to prevent UI freeze/skeleton flash
     try {
-      console.log('createNote: Creating note in Supabase...', { title, folderId });
+      logger.debug('createNote: Creating note in Supabase...', { title, folderId });
       const createdNote = await db.createNote(
         title,
         content,
@@ -970,7 +976,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       
       if (!createdNote) throw new Error('Note creation failed in database');
       
-      console.log('createNote: Success, note:', createdNote.id);
+      logger.debug('createNote: Success, note:', { noteId: createdNote.id });
       // Optimistically add note to beginning of state for immediate visibility
       setNotes(prev => [createdNote, ...prev]);
       
@@ -1057,10 +1063,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Optimistically update state BEFORE database call for instant UI feedback
       setNotes(prev => prev.map(n => n.id === id ? { ...n, ...noteData } : n));
-      console.log('updateNote: State updated optimistically');
+      logger.debug('updateNote: State updated optimistically');
       
       // Now persist to database
-      console.log('updateNote: Updating note in Supabase...', { id, noteData });
+      logger.debug('updateNote: Updating note in Supabase...', { id, noteData });
       await db.updateNote(
         id, 
         noteData.title,
@@ -1068,7 +1074,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         noteData.folderId,
         noteData.tagIds
       );
-      console.log('updateNote: Database updated');
+      logger.debug('updateNote: Database updated');
       
       // Re-generate embeddings in background if content changed
       if (contentChanged && content && content.length > 50) {
@@ -1120,17 +1126,83 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteNote = async (id: string) => {
     // Don't use global loading for quick delete operations
     try {
-      console.log('deleteNote: Deleting note...', { id });
+      logger.debug('deleteNote: Deleting note...', { id });
       // Optimistically update UI first
       setNotes(prev => prev.filter(n => n.id !== id));
       await db.deleteNote(id);
-      console.log('deleteNote: Success');
+      logger.debug('deleteNote: Success');
     } catch (error) {
-      console.error('Error deleting note:', error);
+      logger.error('Error deleting note:', { error });
       // Rollback: reload data on error
       if (user) loadData();
       throw error;
     }
+  };
+
+  // Toggle pin status for a link
+  const togglePinLink = async (id: string) => {
+    const link = links.find(l => l.id === id);
+    if (!link) return;
+
+    const newPinned = !link.isPinned;
+    
+    // Optimistically update state
+    setLinks(prev => prev.map(l => 
+      l.id === id ? { ...l, isPinned: newPinned } : l
+    ));
+
+    try {
+      await db.updateLinkPinned(id, newPinned);
+      logger.debug('togglePinLink: Success', { id, isPinned: newPinned });
+    } catch (error) {
+      // Rollback on error
+      setLinks(prev => prev.map(l => 
+        l.id === id ? { ...l, isPinned: !newPinned } : l
+      ));
+      logger.error('Error toggling pin for link:', { error });
+      throw error;
+    }
+  };
+
+  // Toggle pin status for a note
+  const togglePinNote = async (id: string) => {
+    const note = notes.find(n => n.id === id);
+    if (!note) return;
+
+    const newPinned = !note.isPinned;
+    
+    // Optimistically update state
+    setNotes(prev => prev.map(n => 
+      n.id === id ? { ...n, isPinned: newPinned } : n
+    ));
+
+    try {
+      await db.updateNotePinned(id, newPinned);
+      logger.debug('togglePinNote: Success', { id, isPinned: newPinned });
+    } catch (error) {
+      // Rollback on error
+      setNotes(prev => prev.map(n => 
+        n.id === id ? { ...n, isPinned: !newPinned } : n
+      ));
+      logger.error('Error toggling pin for note:', { error });
+      throw error;
+    }
+  };
+
+  // Check if a URL already exists in saved links
+  const checkDuplicateUrl = (url: string): Link | undefined => {
+    // Normalize URL for comparison (remove trailing slash, protocol variations)
+    const normalizeUrl = (u: string) => {
+      try {
+        const parsed = new URL(u);
+        return parsed.hostname + parsed.pathname.replace(/\/$/, '') + parsed.search;
+      } catch {
+        return u.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+      }
+    };
+
+    const normalizedInput = normalizeUrl(url);
+    return links.find(link => normalizeUrl(link.url) === normalizedInput);
   };
 
   return (
@@ -1140,6 +1212,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       links,
       notes,
       currentFolder,
+      currentTag,
       searchQuery,
       darkMode,
       showMetadata,
@@ -1150,6 +1223,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       linkStatuses,
       recentlyCreatedIds,
       setCurrentFolder,
+      setCurrentTag,
       setSearchQuery,
       toggleDarkMode,
       toggleMetadata,
@@ -1165,10 +1239,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updateLink,
       deleteLink,
       refreshLinkMetadata,
+      togglePinLink,
       createNote,
       updateNote,
       deleteNote,
       refreshNoteContent,
+      togglePinNote,
+      checkDuplicateUrl,
     }}>
       {children}
     </AppContext.Provider>

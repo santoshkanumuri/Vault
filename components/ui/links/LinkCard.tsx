@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, memo, useRef, useCallback } from 'react';
-import { motion, useMotionValue, useTransform, useAnimation, PanInfo } from 'framer-motion';
+import { motion, useMotionValue, useTransform, useAnimation, PanInfo, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +19,8 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
-  Undo2
+  Undo2,
+  Pin
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -43,6 +44,9 @@ interface LinkCardProps {
   onEdit: (link: Link) => void;
   index?: number;
   searchQuery?: string;
+  isSelectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }
 
 // Custom comparison function for React.memo - only re-render when relevant props change
@@ -58,7 +62,8 @@ const arePropsEqual = (
       prevProps.link.favicon !== nextProps.link.favicon ||
       prevProps.link.folderId !== nextProps.link.folderId ||
       prevProps.link.wordCount !== nextProps.link.wordCount ||
-      prevProps.link.fullContent !== nextProps.link.fullContent) {
+      prevProps.link.fullContent !== nextProps.link.fullContent ||
+      prevProps.link.isPinned !== nextProps.link.isPinned) {
     return false;
   }
   
@@ -94,7 +99,9 @@ const arePropsEqual = (
   
   // Check other props
   if (prevProps.index !== nextProps.index ||
-      prevProps.searchQuery !== nextProps.searchQuery) {
+      prevProps.searchQuery !== nextProps.searchQuery ||
+      prevProps.isSelectionMode !== nextProps.isSelectionMode ||
+      prevProps.isSelected !== nextProps.isSelected) {
     return false;
   }
   
@@ -102,8 +109,18 @@ const arePropsEqual = (
   return true;
 };
 
-const LinkCardComponent: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit, index = 0, searchQuery = '' }) => {
-  const { deleteLink, refreshLinkMetadata, linkStatuses, recentlyCreatedIds } = useApp();
+const LinkCardComponent: React.FC<LinkCardProps> = ({ 
+  link, 
+  folder, 
+  tags, 
+  onEdit, 
+  index = 0, 
+  searchQuery = '',
+  isSelectionMode = false,
+  isSelected = false,
+  onToggleSelect
+}) => {
+  const { deleteLink, refreshLinkMetadata, linkStatuses, recentlyCreatedIds, togglePinLink } = useApp();
   const { user } = useAuth();
   const { toast } = useToast();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -279,6 +296,26 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit
     }
   };
 
+  const handleTogglePin = async () => {
+    const willBePinned = !link.isPinned;
+    try {
+      await togglePinLink(link.id);
+      toast({
+        title: willBePinned ? "📌 Pinned to top" : "Unpinned",
+        description: willBePinned 
+          ? `"${link.name}" will now appear at the top of your list.`
+          : `"${link.name}" returned to regular order.`,
+        duration: 2000,
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to update pin",
+        description: "Could not update pin status. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const linkTags = tags.filter(tag => link.tagIds.includes(tag.id));
   const showMetadata = user?.showMetadata && link.metadata;
   
@@ -369,12 +406,49 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit
             transition={{ duration: 2, ease: 'easeOut' }}
           />
         )}
-        <Card className={`group overflow-hidden border-border/50 hover:border-primary/30 transition-all duration-200 hover:shadow-lg dark:hover:shadow-primary/5 ${isNew ? 'ring-2 ring-primary/50 shadow-lg shadow-primary/10' : ''}`}>
+        <Card 
+          className={`group overflow-hidden border-border/50 hover:border-primary/30 transition-all duration-200 hover:shadow-lg dark:hover:shadow-primary/5 ${isNew ? 'ring-2 ring-primary/50 shadow-lg shadow-primary/10' : ''} ${isSelected ? 'ring-2 ring-primary border-primary' : ''} ${link.isPinned ? 'border-amber-500/50 ring-1 ring-amber-500/30' : ''}`}
+          onClick={isSelectionMode ? onToggleSelect : undefined}
+        >
         <CardContent className="p-0">
+          {/* Pinned indicator with animation */}
+          <AnimatePresence>
+            {link.isPinned && (
+              <motion.div 
+                className="absolute top-2 right-2 z-10"
+                initial={{ scale: 0, rotate: -45 }}
+                animate={{ scale: 1, rotate: 0 }}
+                exit={{ scale: 0, rotate: 45 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+              >
+                <div className="bg-amber-500/20 dark:bg-amber-500/30 backdrop-blur-sm rounded-full p-1">
+                  <Pin className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           {/* Header Section */}
           <div className="p-4 pb-3">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3 flex-1 min-w-0">
+                {/* Selection checkbox - shown in selection mode or on long press */}
+                {isSelectionMode && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleSelect?.();
+                    }}
+                    className="flex-shrink-0 mt-0.5"
+                  >
+                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                      isSelected 
+                        ? 'bg-primary border-primary' 
+                        : 'border-muted-foreground/30 hover:border-primary'
+                    }`}>
+                      {isSelected && <Check className="w-3 h-3 text-primary-foreground" />}
+                    </div>
+                  </button>
+                )}
                 {/* Favicon with status indicator */}
                 <div 
                   className="flex-shrink-0 mt-0.5 relative transition-transform duration-200 hover:scale-110 hover:rotate-3"
@@ -480,6 +554,10 @@ const LinkCardComponent: React.FC<LinkCardProps> = ({ link, folder, tags, onEdit
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem onClick={handleTogglePin} className="gap-2">
+                      <Pin className={`h-4 w-4 ${link.isPinned ? 'fill-current text-amber-500' : ''}`} />
+                      {link.isPinned ? 'Unpin' : 'Pin to Top'}
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={handleCopyLink} className="gap-2">
                       <Copy className="h-4 w-4" />
                       Copy Link

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { LinkCard } from './links/LinkCard';
 import { NoteCard } from './notes/NoteCard';
@@ -9,7 +9,7 @@ import { smartSearch } from '@/lib/utils/smart-search';
 import { useApp } from '@/contexts/AppContext';
 import { Link, Note, Folder, Tag } from '@/lib/types';
 import { EmptyState } from './animations';
-import { Inbox, Search, FolderOpen, Plus, Sparkles } from 'lucide-react';
+import { Inbox, Search, FolderOpen, Plus, Sparkles, Pin, Tag } from 'lucide-react';
 import { Button } from './button';
 
 interface CombinedListProps {
@@ -25,7 +25,7 @@ export const CombinedList: React.FC<CombinedListProps> = ({
   onAddLink,
   onAddNote 
 }) => {
-  const { links, notes, folders, tags, currentFolder, searchQuery } = useApp();
+  const { links, notes, folders, tags, currentFolder, currentTag, searchQuery } = useApp();
 
   const filteredItems = useMemo(() => {
     let linkResults = links;
@@ -37,19 +37,34 @@ export const CombinedList: React.FC<CombinedListProps> = ({
       noteResults = noteResults.filter(note => note.folderId === currentFolder);
     }
 
+    // Filter by tag if selected
+    if (currentTag) {
+      linkResults = linkResults.filter(link => link.tagIds.includes(currentTag));
+      noteResults = noteResults.filter(note => note.tagIds.includes(currentTag));
+    }
+
     // Use smart search if there's a query
     if (searchQuery.trim()) {
       const searchResults = smartSearch(searchQuery, linkResults, noteResults, folders, tags);
-      return searchResults.map(result => ({
+      const results = searchResults.map(result => ({
         type: result.type,
         item: result.item,
         relevance: result.score * 100,
         matchType: result.matchDetails[0]?.field || 'name',
         createdAt: result.item.createdAt,
+        isPinned: result.item.isPinned || false,
       }));
+      // Still show pinned items first even in search results
+      return results.sort((a, b) => {
+        // Pinned items first
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        // Then by relevance for search
+        return b.relevance - a.relevance;
+      });
     }
 
-    // If no search query, combine and sort by date
+    // If no search query, combine and sort with pinned first
     const combined = [
       ...linkResults.map(link => ({
         type: 'link' as const,
@@ -57,6 +72,7 @@ export const CombinedList: React.FC<CombinedListProps> = ({
         relevance: 100,
         matchType: 'name',
         createdAt: link.createdAt,
+        isPinned: link.isPinned || false,
       })),
       ...noteResults.map(note => ({
         type: 'note' as const,
@@ -64,12 +80,19 @@ export const CombinedList: React.FC<CombinedListProps> = ({
         relevance: 100,
         matchType: 'title',
         createdAt: note.createdAt,
+        isPinned: note.isPinned || false,
       })),
     ];
 
-    // Sort by creation date (newest first)
-    return combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [links, notes, folders, tags, currentFolder, searchQuery]);
+    // Sort: pinned items first, then by creation date (newest first)
+    return combined.sort((a, b) => {
+      // Pinned items always come first
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      // Within same pin status, sort by date
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [links, notes, folders, tags, currentFolder, currentTag, searchQuery]);
 
   // Create stable lookup maps for folders and tags to prevent new object references
   const folderMap = useMemo(() => {
@@ -88,6 +111,35 @@ export const CombinedList: React.FC<CombinedListProps> = ({
   const getItemTags = useCallback((tagIds: string[]): Tag[] => {
     return tagIds.map(id => tagMap.get(id)).filter((t): t is Tag => t !== undefined);
   }, [tagMap]);
+
+  const parentRef = useRef<HTMLDivElement>(null);
+  
+  // Calculate grid columns based on screen size
+  const getColumnCount = () => {
+    if (typeof window === 'undefined') return 3;
+    const width = window.innerWidth;
+    if (width >= 1280) return 3; // xl
+    if (width >= 768) return 2;  // md
+    return 1; // sm
+  };
+
+  const columnCount = getColumnCount();
+  const rowCount = Math.ceil(filteredItems.length / columnCount);
+
+  const rowVirtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 220, // Estimated row height (card + gap)
+    overscan: 2, // Render 2 extra rows for smooth scrolling
+  });
+
+  // Only use virtual scrolling for lists with 20+ items
+  const useVirtual = filteredItems.length >= 20;
+
+  // Count pinned items for section header
+  const pinnedCount = useMemo(() => 
+    filteredItems.filter(item => item.isPinned).length
+  , [filteredItems]);
 
   if (filteredItems.length === 0) {
     if (searchQuery.trim()) {
@@ -132,6 +184,17 @@ export const CombinedList: React.FC<CombinedListProps> = ({
       );
     }
 
+    if (currentTag) {
+      const tag = tags.find(t => t.id === currentTag);
+      return (
+        <EmptyState
+          icon={<Tag className="w-10 h-10" />}
+          title={`No items with "${tag?.name || 'tag'}"`}
+          description="Add this tag to your links or notes to see them here."
+        />
+      );
+    }
+
     return (
       <EmptyState
         icon={<Inbox className="w-10 h-10" />}
@@ -153,32 +216,8 @@ export const CombinedList: React.FC<CombinedListProps> = ({
     );
   }
 
-  const parentRef = useRef<HTMLDivElement>(null);
-  
-  // Calculate grid columns based on screen size
-  const getColumnCount = () => {
-    if (typeof window === 'undefined') return 3;
-    const width = window.innerWidth;
-    if (width >= 1280) return 3; // xl
-    if (width >= 768) return 2;  // md
-    return 1; // sm
-  };
-
-  const columnCount = getColumnCount();
-  const rowCount = Math.ceil(filteredItems.length / columnCount);
-
-  const rowVirtualizer = useVirtualizer({
-    count: rowCount,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 220, // Estimated row height (card + gap)
-    overscan: 2, // Render 2 extra rows for smooth scrolling
-  });
-
-  // Only use virtual scrolling for lists with 20+ items
-  const useVirtual = filteredItems.length >= 20;
-
   if (!useVirtual) {
-    // For small lists, use regular rendering
+    // For small lists, use regular rendering with layout animations
     return (
       <div>
         {/* Show search info when searching */}
@@ -195,44 +234,122 @@ export const CombinedList: React.FC<CombinedListProps> = ({
           </motion.div>
         )}
         
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filteredItems.map((result, index) => {
-            const folder = folderMap.get(result.item.folderId);
+        {/* Pinned Section Header */}
+        <AnimatePresence mode="popLayout">
+          {pinnedCount > 0 && !searchQuery.trim() && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+              className="mb-3 overflow-hidden"
+            >
+              <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+                <Pin className="w-3.5 h-3.5 fill-current" />
+                <span>Pinned ({pinnedCount})</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        
+        <LayoutGroup>
+          <motion.div 
+            className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+            layout
+          >
+            <AnimatePresence mode="popLayout">
+              {filteredItems.map((result, index) => {
+                const folder = folderMap.get(result.item.folderId);
             if (!folder) return null;
 
-            if (result.type === 'link') {
-              const link = result.item as Link;
-              const linkTags = getItemTags(link.tagIds);
-              
-              return (
-                <LinkCard
-                  key={`link-${link.id}`}
-                  link={link}
-                  folder={folder}
-                  tags={linkTags}
-                  onEdit={onEditLink}
-                  index={index}
-                  searchQuery={searchQuery}
-                />
-              );
-            } else {
-              const note = result.item as Note;
-              const noteTags = getItemTags(note.tagIds);
-              
-              return (
-                <NoteCard
-                  key={`note-${note.id}`}
-                  note={note}
-                  folder={folder}
-                  tags={noteTags}
-                  onEdit={onEditNote}
-                  index={index}
-                  searchQuery={searchQuery}
-                />
-              );
-            }
-          })}
-        </div>
+                // Show divider before first unpinned item after pinned section
+                const showDivider = !searchQuery.trim() && 
+                  pinnedCount > 0 && 
+                  index === pinnedCount;
+
+                if (result.type === 'link') {
+                  const link = result.item as Link;
+                  const linkTags = getItemTags(link.tagIds);
+                  
+                  return (
+                    <React.Fragment key={`link-${link.id}`}>
+                      {showDivider && (
+                        <motion.div 
+                          className="col-span-full my-2"
+                          initial={{ opacity: 0, scaleX: 0 }}
+                          animate={{ opacity: 1, scaleX: 1 }}
+                          transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                        >
+                          <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+                        </motion.div>
+                      )}
+                      <motion.div
+                        layout
+                        layoutId={`link-${link.id}`}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        transition={{ 
+                          layout: { type: 'spring', stiffness: 500, damping: 35 },
+                          opacity: { duration: 0.2 },
+                          scale: { duration: 0.2 }
+                        }}
+                      >
+                        <LinkCard
+                          link={link}
+                          folder={folder}
+                          tags={linkTags}
+                          onEdit={onEditLink}
+                          index={index}
+                          searchQuery={searchQuery}
+                        />
+                      </motion.div>
+                    </React.Fragment>
+                  );
+                } else {
+                  const note = result.item as Note;
+                  const noteTags = getItemTags(note.tagIds);
+                  
+                  return (
+                    <React.Fragment key={`note-${note.id}`}>
+                      {showDivider && (
+                        <motion.div 
+                          className="col-span-full my-2"
+                          initial={{ opacity: 0, scaleX: 0 }}
+                          animate={{ opacity: 1, scaleX: 1 }}
+                          transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                        >
+                          <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+                        </motion.div>
+                      )}
+                      <motion.div
+                        layout
+                        layoutId={`note-${note.id}`}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        transition={{ 
+                          layout: { type: 'spring', stiffness: 500, damping: 35 },
+                          opacity: { duration: 0.2 },
+                          scale: { duration: 0.2 }
+                        }}
+                      >
+                        <NoteCard
+                          note={note}
+                          folder={folder}
+                          tags={noteTags}
+                          onEdit={onEditNote}
+                          index={index}
+                          searchQuery={searchQuery}
+                        />
+                      </motion.div>
+                    </React.Fragment>
+                  );
+                }
+              })}
+            </AnimatePresence>
+          </motion.div>
+        </LayoutGroup>
       </div>
     );
   }

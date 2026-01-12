@@ -1,8 +1,9 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { User } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/utils/logger';
 
 interface AuthContextType {
   user: User | null;
@@ -30,7 +31,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Helper function to load user data from database
   const loadUserData = useCallback(async (authUser: any): Promise<User | null> => {
     if (!supabase) {
-      console.error('Supabase is not configured');
+      logger.error('Supabase is not configured');
       return null;
     }
 
@@ -42,7 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
 
       if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching user data:', error);
+        logger.error('Error fetching user data:', { error });
       }
 
       return {
@@ -53,19 +54,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdAt: userData?.created_at || authUser.created_at || new Date().toISOString(),
       };
     } catch (error) {
-      console.error('Error loading user data:', error);
+      logger.error('Error loading user data:', { error });
       return null;
     }
   }, []);
 
+  // Use ref to track if auth has completed to fix timeout race condition
+  const authCompletedRef = useRef(false);
+
   useEffect(() => {
     let isMounted = true;
     let authSubscription: any = null;
+    authCompletedRef.current = false;
 
     const initializeAuth = async () => {
       if (!supabase) {
-        console.error('Supabase is not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local');
+        logger.error('Supabase is not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local');
         setIsLoading(false);
+        authCompletedRef.current = true;
         return;
       }
 
@@ -76,8 +82,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!isMounted) return;
 
         if (error) {
-          console.error('Session error:', error);
+          logger.error('Session error:', { error });
           setIsLoading(false);
+          authCompletedRef.current = true;
           return;
         }
 
@@ -91,6 +98,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (isMounted) {
           setIsLoading(false);
+          authCompletedRef.current = true;
         }
 
         // Set up auth state listener
@@ -111,17 +119,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         authSubscription = subscription;
       } catch (error) {
-        console.error('Auth initialization error:', error);
+        logger.error('Auth initialization error:', { error });
         if (isMounted) {
           setIsLoading(false);
+          authCompletedRef.current = true;
         }
       }
     };
 
-    // Add timeout to prevent infinite loading
+    // Add timeout to prevent infinite loading - only fires if auth hasn't completed
     const timeoutId = setTimeout(() => {
-      if (isMounted && isLoading) {
-        console.warn('Auth initialization timeout');
+      if (isMounted && !authCompletedRef.current) {
+        logger.warn('Auth initialization timeout - forcing loading to complete');
         setIsLoading(false);
       }
     }, 10000);
@@ -149,13 +158,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error) {
-        console.error('Login error:', error);
+        logger.error('Login error:', { error });
         return { success: false, error: error.message };
       }
 
       return { success: !!data.user };
     } catch (error: any) {
-      console.error('Login error:', error);
+      logger.error('Login error:', { error });
       return { success: false, error: error.message || 'Login failed' };
     }
   }, []);
@@ -178,7 +187,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error) {
-        console.error('Signup error:', error);
+        logger.error('Signup error:', { error });
         return { success: false, error: error.message };
       }
 
@@ -194,7 +203,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
 
         if (userError) {
-          console.warn('User table insert error:', userError);
+          logger.warn('User table insert error:', { error: userError });
           // Don't fail registration if user table insert fails - the trigger should handle it
         }
 
@@ -203,7 +212,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return { success: false, error: 'Registration failed - no user returned' };
     } catch (error: any) {
-      console.error('Registration error:', error);
+      logger.error('Registration error:', { error });
       return { success: false, error: error.message || 'Registration failed' };
     }
   }, []);
@@ -215,7 +224,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await supabase.auth.signOut();
       setUser(null);
     } catch (error) {
-      console.error('Logout error:', error);
+      logger.error('Logout error:', { error });
     }
   }, []);
 
@@ -229,14 +238,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', user.id);
 
       if (error) {
-        console.error('Error updating metadata preference:', error);
+        logger.error('Error updating metadata preference:', { error });
         throw error;
       }
 
       // Update local state
       setUser({ ...user, showMetadata });
     } catch (error) {
-      console.error('Failed to update metadata preference:', error);
+      logger.error('Failed to update metadata preference:', { error });
       throw error;
     }
   }, [user]);
